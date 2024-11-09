@@ -11,6 +11,7 @@ A measured boot with OpenBSD using the TPM
    :caption: Contents:
 
    cover
+   synopsis
 
 
 Indices and tables
