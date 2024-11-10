@@ -12,6 +12,7 @@ A measured boot with OpenBSD using the TPM
 
    cover
    synopsis
+   introduction
 
 
 Indices and tables
