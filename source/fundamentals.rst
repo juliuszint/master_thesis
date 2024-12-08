@@ -513,5 +513,477 @@ is set to the address ``FFFF:FFF0``, known as the reset vector [35]_ (chap.
 8.4.3). At this address resides the system firmware, which, in the case of the
 test system used in this work, implements UEFI.
 
+The responsibilities of firmware include performing the Power-On Self Test
+(POST), during which the installed hardware is checked for functionality, and
+booting an operating system through chainloading. Essential hardware components,
+such as the keyboard, display, and storage devices, are initialized by the
+firmware and made operational. These components are then exposed to subsequent
+software via an Application Programming Interface (API) [39]_ (chap. 1). Both
+the unofficial BIOS standard and the official UEFI standard define such APIs,
+which will be introduced in the following sections.
+
+Unified Extensible Firmware Interface
+-------------------------------------
+On January 31, 2006, the first version of the UEFI specification was published.
+Its goal, as well as that of its predecessor, the Extensible Firmware Interface
+(EFI) developed by Intel, was to reduce platform dependency in firmware [40]_.
+Leveraging the opportunity for a fresh start, numerous additional improvements
+were introduced alongside this primary objective. These enhancements include
+support for GUID Partition Table (GPT), 64-bit firmware code, and security
+features such as Secure Boot.
+
+Although UEFI is already widely adopted and is poised to play an even more
+significant role in firmware in the future, this work opted to enable the
+Compatibility Support Module (CSM). The CSM emulates a legacy BIOS, allowing for
+the traditional boot process of an operating system [41]_. This decision was
+made for the following reasons:
+
+1. Existing software solutions such as TrustedGRUB2 or the AEM module in QubesOS
+   are designed to work with legacy BIOS. Using legacy BIOS is advantageous for
+   enabling later comparisons, exploring potential compositional solutions, or
+   drawing inspiration for developing a custom solution.
+
+2. UEFI firmware is more portable and offers a greater range of features
+   compared to traditional firmware. However, this increased complexity demands
+   additional time for familiarization, which could detract from the time
+   available to address the primary problem.
+
+Basic Input Output System
+-------------------------
+The BIOS firmware is tightly integrated with the platform for which it was
+originally designed: the 8/16-bit Intel 8088 microprocessor, introduced in
+1981 [39]_ (chap. 1). At the time, many functionalities provided by this chip
+were utilized without abstraction, as the future trajectory of the personal
+computer (PC) market was still unpredictable. Due to the relatively small number
+of computers and companies developing firmware for them, there was no pressing
+need for an official specification. BIOS firmware from companies like American
+Megatrends and Phoenix became the most widely used, and despite minor
+differences, they remain largely compatible with each other.
+
+Before delving into the specifics of the BIOS API, the following section
+describes the state of the processor immediately after a PC starts. The
+information is based on the Intel® 64 and IA-32 Architectures Software
+Developer’s Manual [35]_ and applies to both i386 and amd64 CPUs.
+
+Real Address Mode
+~~~~~~~~~~~~~~~~~
+The execution environment, referred to in modern Intel processors as
+*Real-Address Mode*, emulates that of the 8086 processor introduced in 1990.
+When a processor begins executing instructions, either following a reset or
+during system startup, it operates in this mode. The key characteristics of this
+execution environment are outlined below.
+
+Memory Addressing in Real-Address Mode
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+In the physical address space of an 8086 processor, up to 1
+MiB of memory can be addressed. The physical address corresponds directly to the
+linear address, which is computed from the 16-bit Segment Selector and the
+16-bit Effective Address. To generate a 20-bit linear address from these two
+16-bit values, the Segment Selector is shifted 4 bits to the left and then added
+to the Effective Address.
+
+This process is illustrated in :numref:`segment-addressing`, which provides a visual
+representation of this address construction mechanism. It is important to note
+that some linear addresses can result from multiple combinations of Segment
+Selector and Effective Address. For instance, the linear address 10000 can be
+generated in several ways using this addressing scheme.
+
+.. math::
+
+    Li = Se + Of
+
+    0b10000 = 0b00000 + 0b10000
+
+    0b10000 = 0b00001 + 0b00000
+
+.. figure:: ./_static/segment_addressing.svg
+   :name: segment-addressing
+   :alt: Memory Addressing with Segments
+   :align: center
+
+   Memory Addressing with Segments [35]_
+
+Instructions and Registers
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+This section is not a comprehensive reference of all instructions but rather a
+brief explanation of how certain instructions implicitly utilize registers and
+their contents. It highlights how specific operations rely on predefined
+registers to function, even without explicitly referencing them in the
+instruction syntax.
+
+In Real-Address Mode, programs have access to eight general-purpose 16-bit
+registers: **AX**, **BX**, **CX**, **DX**, **SP**, **BP**, **SI**, and **DI**.
+In the emulated environment, their 32-bit extensions, prefixed with E (e.g.,
+**EAX**, **EBX**), can also be utilized.
+
+In addition to these general-purpose registers, there are four segment
+registers: **CS**, **DS**, **SS**, and **ES**. Each serves a specific function,
+with CS (Code Segment) being used as the segment selector for the code segment.
+These names are mnemonics, providing descriptive identifiers for their roles.
+They can be referenced or looked up for clarification when necessary.
+
+The ``loop`` instruction is an example of a command whose behavior depends on the
+contents of a register. If the CX register contains a value greater than 0, the
+instruction decrements CX and jumps to the address specified in its operand. If
+CX equals 0, the jump is not performed, and execution continues with the
+instruction following the ``loop`` command.
+
+.. figure:: ./_static/intel_registers.svg
+   :name: intel-registers
+   :alt: Intel Registers
+   :align: center
+
+   Intel Registers
+
+As illustrated in :numref:`intel-registers`, **AX** and **EAX** are not distinct
+registers but rather represent the same register with different sizes. This
+implies that writing to RAX simultaneously modifies the contents of **EAX**,
+**AX**, **AH**, and **AL**, as these smaller segments are subsets of the larger
+register.
+
+Interrupts
+^^^^^^^^^^
+A CPU executes instructions in the sequence predefined by a program. However,
+interrupts allow this sequence to be temporarily disrupted, enabling the
+execution of other instructions before resuming the interrupted program.
+
+    To understand the BIOS architecture, one must consider the interrupt-driven
+    nature of the Intel 80x86 architecture [39]_ (chap. 1).
+
+This statement aptly describes the 8086 CPU as interrupt-driven. Interrupts can
+be triggered by hardware components within the system, by the CPU itself, or by
+software [39]_ (chap. 1). Software interrupts, in particular, are of interest for
+this work as they enable invoking BIOS services.
+
+A software interrupt is triggered using the assembly instruction ``int 0x1a;``.
+This instruction consists of the ``int`` mnemonic (short for "interrupt") and
+the operand 0x1a, which is referred to as the interrupt vector. The CPU uses
+this vector to determine the offset in the **Interrupt Vector Table (IVT)**,
+where the corresponding interrupt service routine is located.
+
+:numref:`interrupt-vector-table` illustrates the structure of the Interrupt
+Vector Table (IVT). It starts at the physical address 0x0000 and consists of 255
+pointer entries, each occupying 4 bytes. Each pointer is composed of 2 bytes for
+a segment selector and 2 bytes for an offset, allowing an interrupt handler to
+be located anywhere within the address space.
+
+While the software has the flexibility to define the pointers in this table, the
+number of interrupt vectors is fixed. Of these, only the vectors 32 to 255 are
+available for software use. The others are reserved by Intel for predefined
+purposes, such as Interrupt 0, which is triggered by a division-by-zero
+exception.
+
+.. figure:: ./_static/interrupt_vector_table.svg
+   :name: interrupt-vector-table
+   :alt: Interrupt Vector Table
+   :align: center
+
+   Interrupt Vektor Table [35]_
+
+BIOS API
+^^^^^^^^
+Understanding software interrupts makes it straightforward to explain how BIOS
+functionality can be invoked. During initialization, the BIOS populates the
+Interrupt Vector Table (IVT) with specific function pointers. By triggering a
+software interrupt, the corresponding function pointer in the IVT is executed,
+enabling the desired BIOS routine to run.
+
+To maintain logical organization and because 255 entries in the Interrupt Vector
+Table (IVT) are relatively limited, the interrupt vector primarily serves as a
+preselection mechanism for device categories. For instance, interrupt vector
+``0x10`` is designated for video services [39]_ (chap. 1).
+
+The selection of which routine within the specified category to execute is
+determined by the value in the AL register. Additional parameters are passed to
+the routine using other registers. The following assembly code demonstrates how
+to invoke a BIOS routine to set the cursor position [39]_:
+
+.. code-block:: asm
+   :caption: Set Cursor Position via BIOS
+   :linenos:
+   :name: set-cursor-bios
+
+    MOV AH, 2       ;Select "Set Cursor Position" function
+    MOV DH, 3       ;Input row parameter into DH register
+    MOV DL, 14      ;Input column parameter into DL register
+    INT 10H         ;Invoke INT 10h, BIOS Video Service
+
+:numref:`set-cursor-bios` concludes the firmware chapter, addressing the
+following questions:
+
+1. What is the role of firmware in PCs?
+
+2. In what state is the CPU immediately after startup, and what features does it
+   offer?
+
+3. How can the functionality provided by the BIOS be executed?
+
+The following chapter explains which software component takes control from the
+firmware and how the OpenBSD operating system is loaded.
+
+OpenBSD
+-------
+The OpenBSD operating system was initiated in 1995 by Theo de Raadt as a fork of
+NetBSD. Its entire source code is publicly available and distributed under the
+BSD license or an even more permissive variant. The project emphasizes
+portability, standardization, correctness, proactive security, and integrated
+cryptography. These objectives, particularly proactive security, distinguish
+OpenBSD from all other operating systems. With a strong focus on security,
+OpenBSD is suitable for deployment as a router, server, firewall, or desktop
+system.
+
+The accompanying USB stick provided with this work contains a dd dump of a hard
+drive where OpenBSD with Full Disk Encryption (FDE) has been installed. The
+first 100 megabytes were zeroed out prior to the installation to facilitate
+better understanding when inspecting the disk. Additionally, reference sections
+for all OpenBSD tools are included in parentheses. OpenBSD's documentation is
+excellent and can be consulted for further information.
+
+The following sections will cover the fundamentals of all software components
+executed during the startup process of OpenBSD on an amd64 platform. The Master
+Boot Record (MBR), introduced with the IBM PC XT in 1983, remains in use on many
+systems to this day. It is directly loaded and executed by the BIOS, making it
+the first software component to run after the firmware.
+
+Master Boot Record
+~~~~~~~~~~~~~~~~~~
+The Master Boot Record (MBR) is located at the Cylinder Head Sector (CHS)
+address (0, 0, 1) or at Block 0 when Logical Block Addressing (LBA) is used. It
+occupies a single sector and has a maximum size of 512 bytes on hard drives.
+
+There is no formal standard defining the Master Boot Record (MBR). The following
+information is derived from the OpenBSD source code [12]_
+(``sys/sys/disklabel.h``).
+
+.. figure:: ./_static/mbr_content.svg
+   :name: mbr-contents
+   :alt: MBR Contents
+   :align: center
+
+   MBR Contents
+
+As illustrated in :numref:`mbr-contents`, the Master Boot Record (MBR) for
+OpenBSD consists of three parts. The first 440 bytes are occupied by the
+bootloader. Its primary task is to search the subsequent partition table for an
+active partition and load and execute the Partition Boot Record (PBR) from that
+partition. The corresponding source code can be found in the file [12]_
+(``sys/arch/amd64/stand/mbr/mbr.S``)
+
+The partition table provides space for information on exactly four partitions. A
+standard OpenBSD installation requires only one, as additional partitions are
+defined using disklabels. The last two bytes of the MBR contain the signature
+``0x55 0xaa``.
+
+The first sector of a partition contains the Partition Boot Record (PBR). This
+sector holds the ``biosboot`` program, which will be introduced in the next
+section.
+
+biosboot(8)
+~~~~~~~~~~~
+The sole purpose of the ``biosboot(8)`` program is to load the second-stage
+bootloader ``boot(8)``. As with the MBR, the PBR is also restricted to a maximum
+size of 512 bytes.
+
+To load ``boot(8)``, ``biosboot(8)`` first requires information about the
+location and size of the program on the disk. At this stage, a fully functional
+file system cannot be utilized due to the size constraints of ``biosboot(8)``.
+OpenBSD employs the standard Unix inode system to manage file metadata. Since
+``biosboot(8)`` is capable of interpreting the inode data structure, it only
+needs the location of the inode corresponding to boot to proceed.
+
+This information, along with other necessary details, is embedded directly into
+the program code during the installation of ``biosboot(8)`` by the
+``installboot(8)`` utility. In the source code file
+``sys/arch/amd64/stand/biosboot/biosboot.S``, the label inodeblk references the
+immediate value of a mov instruction, indicating the location of it.
+
+Figure :numref:`biosboot-patch` illustrates the exact implementation of this
+process. The first two lines represent assembly code, followed by the resulting
+bytecode. The ``movl`` instruction is translated by the assembler into the
+opcode b8, which instructs the processor to load the four bytes following the
+command into the ``eax`` register. The label inodeblk points directly to the
+start of these four bytes, and this label is utilized by ``installboot(8)`` to
+insert the inode's block address at this location.
+
+.. figure:: ./_static/biosboot_patch.svg
+   :name: biosboot-patch
+   :alt: biosboot patch
+   :align: center
+
+   biosboot patch
+
+After the successful execution of ``biosboot(8)``, the second-stage bootloader
+``boot(8)``, which is the first program in this sequence that can exceed 512
+bytes in size, is loaded into memory and executed via a ``ljmp`` instruction.
+
+boot(8)
+~~~~~~~
+``boot(8)``, also known as the second-stage bootloader, is responsible for
+loading the operating system kernel into memory, decompressing it, and
+transferring control to it.
+
+Unlike its two predecessors, boot(8) introduces the ability to interact with the
+boot process. This interaction can occur either by entering commands in the
+interactive console, as shown in :numref:`bootprompt`, or via the configuration
+file /etc/boot.conf. The configuration file serves to automate commands,
+offering the same range of possibilities as the interactive input.
+
+.. figure:: ./_static/boot_prompt.svg
+   :name: bootprompt
+   :alt: boot(8) prompt
+   :align: center
+
+   boot(8) prompt
+
+In addition to the eight universally available commands—such as boot(8), echo,
+or set—the amd64 platform includes machine-specific commands. These commands are
+prefixed with machine and followed by their respective names, such as diskinfo,
+which outputs information about all hard drives detected by the BIOS to the
+console.
+
+The BIOS leaves the processor unchanged in real mode, where only 20 bits are
+available for memory addressing. This allows for a maximum of 1 MiB of
+addressable memory. Since the OpenBSD kernel requires approximately 15 MiB of
+memory, boot(8) must transition the processor to protected mode.
+
+This detail is significant because invoking BIOS routines necessitates switching
+the processor back to real mode. For example, loading data from the hard disk is
+performed through such BIOS calls.
+
+On the hard disk, boot, like all other system files, exists as a regular file
+within the Fast File System (FFS). However, in the case of active Full Disk
+Encryption (FDE), this file system is encrypted. The following section explains
+how FDE is enabled in OpenBSD and from where biosboot retrieves boot in such
+scenarios.
+
+Full Disk Encryption
+~~~~~~~~~~~~~~~~~~~~
+The OpenBSD installer does not provide a straightforward yes/no option to enable
+Full Disk Encryption (FDE). However, this does not mean the functionality is
+unavailable. OpenBSD supports FDE using AES-256 in XTS mode. To configure this,
+it is necessary to interrupt the installation process by pressing ``Ctrl-C`` to
+access the shell before selecting the installation target. Then, the commands
+listed in Listing 2.2 must be executed.
+
+.. code-block:: bash
+   :caption: OpenBSD install with FDE
+   :linenos:
+   :name: open-bsd-fde
+
+    $ dd if=/dev/zero of=/dev/rsd0c bs=512 count=1024
+    $ fdisk -iy sd0
+    $ disklabel -E sd0
+    sd0> a a
+    offset: [64]
+    size: [39825135] *
+    FS type: [4.2BSD] RAID
+    sd0> w
+    sd0> q
+    $ bioctl -c C -l sd0a softraid0
+    $ dd if=/dev/zero of=/dev/rsd2c bs=512 count=1024
+    $ exit
+
+1. This line uses the dd tool to overwrite the beginning of the hard drive with
+   zeros. This ensures that programs like fdisk will not get confused by the
+   random data, and additionally it is helpful for later analysis, to see which
+   data was actually written.
+
+2. This command initializes the partition table in the MBR. It creates a
+   partition that starts at block address 64 (``0x8000``) and ends at the last
+   possible block.
+
+3. A disklabel is an OpenBSD-specific disk management structure located
+   immediately after the PBR (Partition Boot Record) on the disk. It allows the
+   disk to be divided into up to 15 partitions, which is the preferred method of
+   partitioning in OpenBSD. Using the interactive editor ``disklabel(8)``, we
+   define a single disklabel partition in lines 3 through 9. This partition
+   mirrors the values of the partition recorded in the MBR. In OpenBSD, letters
+   are used to identify individual partitions, and in this case, we have
+   assigned the letter ``a`` to this partition.
+
+10. This line registers a pseudo block device in OpenBSD, which implements the
+    encryption transparently. To do this, the RAID management tool ``bioctl`` is
+    used. Due to their technical similarity, full disk encryption (FDE) in
+    OpenBSD is implemented as a RAID discipline. Here, we pass the partition
+    ``sd0a`` created in the previous step and use the ``-c C`` flag to instruct
+    ``bioctl`` to use the RAID discipline CRYPTO. After entering the password
+    twice, the device ``sd2`` is created (when installing from a USB stick). All
+    data written to this block device is automatically encrypted using AES.
+
+11. Here, as in the first step, the beginning of our newly created pseudo-block
+    device is overwritten with zeros. This step is particularly important for
+    this device because the decryption of previously unencrypted data can result
+    in high entropy values.
+
+12. The installation is now continued with the exit command, and sd2 is selected
+    as the target.
+
+Both the ``MBR`` and the ``PBR`` remain unchanged, regardless of whether FDE
+(Full Disk Encryption) is enabled or not. However, since ``boot(8)`` resides in
+the regular file system, which is encrypted during the installation with FDE,
+the question arises as to how exactly ``biosboot(8)`` handles this case.
+
+.. table:: FDE Partitions
+   :name: fde-partitions
+
+   ========== ====================== ========
+   Offset     Content                Size
+   ========== ====================== ========
+   0x08000    Partition Boot Record  512
+   0x08200    Disklabel              500
+   0x0a000    Softraid Metadata      8192
+   0x12000    /boot                  x
+   ========== ====================== ========
+
+The CRYPTO discipline is exclusively offered by the OpenBSD software RAID driver
+``softraid(4)``. In parts of its source code [12]_ (``sys/dev/softraidvar.h``,
+``sys/arch/amd64/stand/libsa/softraid_amd64.c``), the implementation details of
+the CRYPTO discipline are more clearly visible. The ``softraid(4)`` driver
+stores **unencrypted** metadata in a defined area on the disk, which includes
+securely stored key material.
+
+The preprocessor directives ``SR_META_OFFSET`` and ``SR_META_SIZE`` define the
+exact location of this data. In addition to these two values, their sum is
+referred to as ``SR_BOOT_OFFSET``, at which the ELF signature of ``boot(8)`` can
+be found on the disk. Table :numref:`fde-partitions` shows the exact offset
+values and their contents.
+
+This provides an overview of how OpenBSD starts on an amd64 system and which
+components remain unencrypted even when Full Disk Encryption (FDE) is enabled.
+The boot process begins with the ``MBR``, followed by the ``PBR``, and finally a
+copy of ``boot(8)`` in the ``softraid(4)`` metadata. The operating system
+kernel, however, is encrypted, which is particularly useful for this work, as
+OpenBSD's kernel relinking feature ensures that the kernel is different with
+each boot.
+
+Here is a short summary of what this chapter has explained:
+
+1. Explanation and definition of an Evil Maid style attack.
+
+2. Theoretical solutions for detecting them.
+
+3. What hardware is required to realise those solutions.
+
+4. Which software components are left unencrypted even with a FDE OpenBSD
+   system.
+
+5. Invoking firmware provided functionality.
+
+In the following, a State-of-the-Art analysis will first evaluate two practical
+implementations with other operating systems, followed by a practical
+implementation for OpenBSD.
+
+.. [12] OpenBSD 6.5 Source Code 01/2019
+
 .. [35] Intel® 64 and IA-32 Architectures Software Developer’s Manual, 09/2016 Volume
     3 (3A, 3B, 3C and 3D): System Programming Guide
+
+.. [39] Mike Boston Paul Narushoff System BIOS for IBM PC/XT/AT Computers and
+   Compatibles, 09/1990 The Complete Guide to ROM-Based System Software
+
+.. [40] Vincent Zimmer Michael Rothman Suresh Marisetty Beyond BIOS, 09/2013
+   Developing with the Unified Extensible Firmware Interface
+
+.. [41] Intel® Platform Innovation Framework for UEFI, 09/2013 Compatibility
+   Support Module Specification
+
