@@ -48,25 +48,25 @@ software, such as KeePass, can assist with this process. When keys are randomly
 generated, an attacker is forced to attempt every possible key, which, for AES,
 is a time-intensive process.
 
-.. TODO: ref für chapter 2.1
-
 Secure storage of key material is just as important as its random generation.
 Full Disk Encryption (FDE) protects data confidentiality against individuals
 with **physical access** to the device. However, if an attacker gains access to
 the hardware, several attack vectors may be exploited to compromise the key.
 Such attacks are often described by the term "Evil Maid Attack" (EMA), referring
-to attacks by malicious personnel. Chapter 2.1 provides a detailed description
-of these attacks. For the purposes of this introduction, it is important to
-understand that, despite FDE, the portion of the software that prompts for the
-password remains unencrypted on the storage device. An attacker can replace
-these unencrypted programs with a modified version that captures and transmits
-the password to them. An example of how to mitigate this type of attack can be
-seen in Bitlocker’s key management.
+to attacks by malicious personnel. :ref:`Evil Maid Attack` provides a detailed
+description of these attacks. For the purposes of this introduction, it is
+important to understand that, despite FDE, the portion of the software that
+prompts for the password remains unencrypted on the storage device. An attacker
+can replace these unencrypted programs with a modified version that captures and
+transmits the password to them. An example of how to mitigate this type of
+attack can be seen in Bitlocker’s key management.
 
 BitLocker offers a total of five authentication methods to release the Volume
 Master Key (VMK), which is then used to decrypt the Full-Volume Encryption Key
 (FVEK). The FVEK, in turn, is used to encrypt and decrypt the data. [11]_, [14]_
 (p. 33 ff)
+
+.. _Configuration 1 of BitLocker:
 
 1. **BitLocker with Trusted Platform Module (TPM):** In this configuration, the
    Volume Master Key (VMK) is stored within the TPM. To retrieve it, the
@@ -168,10 +168,7 @@ documentation:
     of a security feature, there is strong likelihood that users will try to bypass
     security. [14]_ (p. 8)
 
-
-.. TODO: could be a reference
-
-Configuration 1 of BitLocker demonstrates how Full Disk Encryption (FDE) can be
+`Configuration 1 of BitLocker`_ demonstrates how Full Disk Encryption (FDE) can be
 implemented in a completely transparent manner for users. They are not required
 to enter a password, nor are there noticeable performance degradation. If
 OpenBSD also supported TPM, a fully transparent solution would be possible as

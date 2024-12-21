@@ -14,6 +14,13 @@ A measured boot with OpenBSD using the TPM
    synopsis
    introduction
    fundamentals
+   state-of-the-art-analysis
+   solution-approaches
+   implementation
+   conclusion-outlook
+   appendix-a
+   appendix-b
+   bibliography
 
 
 Indices and tables

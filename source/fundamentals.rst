@@ -125,17 +125,6 @@ The measurement of components, which will be explained in more detail in the
 next section, enables the detection of modifications to programs and the data
 they use.
 
-.. [18] Johannes Götzfried Trusted Systems in Untrusted Environments: Protecting
-   against Strong Attackers 12/2017
-
-.. [19] David Kierznowski MSc, Keith Mayes ISG BadUSB 2.0: Exploring USB Man-In-
-   The-Middle Attacks 05/2016
-
-.. [23] B. Kaliski PKCS #1: RSA Encryption Version 1.5, RFC 2313 03/1998
-
-.. [28] Hendrik Schwartke , Ralf Spenneberg UEFI-Secure-Boot und alternative
-   Betriebs- systeme, ADMIN 03/2014
-
 Measurements
 ~~~~~~~~~~~~
 Measurement refers to the process of recording both executed software and the
@@ -181,9 +170,6 @@ the Trusted Computing Group (TCG), which developed the Trusted Platform Module
 (TPM) as a solution. The TPM, along with its features and functionality, is
 introduced in the following chapter on foundational concepts.
 
-.. [60] https://software.intel.com/en-us/forums/intel-trusted-execution-technology-intel-txt/
-   topic/518519
-
 Hardware
 ================
 This chapter delves into the hardware components essential for understanding
@@ -214,9 +200,6 @@ Attestation (DAA). In 2014, the latest version, TPM 2.0, was released, offering
 additional enhancements, including greater flexibility in the selection of
 supported algorithms [29]_ (chap. 1) . For the purposes of this thesis, only
 version 1.2 will be used to minimize the number of variables involved.
-
-.. [29] Will Arthur, David Challener, Kenneth Goldman A Practical Guide to TPM
-   2.0, 01/2015
 
 TPM-Owner und Storage Root Key
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -406,13 +389,6 @@ additional processor features. Both Advanced Micro Devices (AMD) and Intel
 provide extensions that enable DRTM in conjunction with a TPM. These extensions
 are briefly described in the following sections.
 
-.. [30] TPM Main Part 1 Design Principles, 03/2011 Version 1.2
-
-.. [32] TPM Main Part 3 Commands, 03/2011 Version 1.2
-
-.. [34] TCG PC Client Specific Implementation Specification for Conventional
-   BIOS, 02/2012 Specification Version 1.21 Errata
-
 Intel Trusted Execution Technology
 ----------------------------------
 Intel Trusted Execution Technology (TXT) is Intel's branding for a suite of
@@ -495,15 +471,6 @@ sections on Intel TXT and AMD SVM have been kept intentionally brief, as neither
 technology is utilized in the implementation. The following chapter will focus
 on the software components, spanning from firmware to the operating system, that
 are executed during the startup of OpenBSD on an IBM XT-compatible system.
-
-.. [38] Intel® Trusted Execution Technology (Intel® TXT), 11/2017 Measured
-   Launched Environment Developer’s Guide
-
-.. [52] Bryan Jeffrey Parno Trust Extension as a Mechanism for Secure Code
-   Execution on Commodity Computers, 08/2016
-
-.. [36] AMD64 Architecture Programmer’s Manual, 10/2019 Volume 2: System Pro-
-   gramming
 
 Firmware
 ========
@@ -973,10 +940,38 @@ In the following, a State-of-the-Art analysis will first evaluate two practical
 implementations with other operating systems, followed by a practical
 implementation for OpenBSD.
 
+
 .. [12] OpenBSD 6.5 Source Code 01/2019
 
-.. [35] Intel® 64 and IA-32 Architectures Software Developer’s Manual, 09/2016 Volume
-    3 (3A, 3B, 3C and 3D): System Programming Guide
+.. [18] Johannes Götzfried Trusted Systems in Untrusted Environments: Protecting
+   against Strong Attackers 12/2017
+
+.. [19] David Kierznowski MSc, Keith Mayes ISG BadUSB 2.0: Exploring USB Man-In-
+   The-Middle Attacks 05/2016
+
+.. [23] B. Kaliski PKCS #1: RSA Encryption Version 1.5, RFC 2313 03/1998
+
+.. [28] Hendrik Schwartke , Ralf Spenneberg UEFI-Secure-Boot und alternative
+   Betriebs- systeme, ADMIN 03/2014
+
+.. [29] Will Arthur, David Challener, Kenneth Goldman A Practical Guide to TPM
+   2.0, 01/2015
+
+.. [30] TPM Main Part 1 Design Principles, 03/2011 Version 1.2
+
+.. [32] TPM Main Part 3 Commands, 03/2011 Version 1.2
+
+.. [34] TCG PC Client Specific Implementation Specification for Conventional
+   BIOS, 02/2012 Specification Version 1.21 Errata
+
+.. [35] Intel® 64 and IA-32 Architectures Software Developer’s Manual, 09/2016
+   Volume 3 (3A, 3B, 3C and 3D): System Programming Guide
+
+.. [36] AMD64 Architecture Programmer’s Manual, 10/2019 Volume 2: System
+   Programming
+
+.. [38] Intel® Trusted Execution Technology (Intel® TXT), 11/2017 Measured
+   Launched Environment Developer’s Guide
 
 .. [39] Mike Boston Paul Narushoff System BIOS for IBM PC/XT/AT Computers and
    Compatibles, 09/1990 The Complete Guide to ROM-Based System Software
@@ -987,3 +982,7 @@ implementation for OpenBSD.
 .. [41] Intel® Platform Innovation Framework for UEFI, 09/2013 Compatibility
    Support Module Specification
 
+.. [52] Bryan Jeffrey Parno Trust Extension as a Mechanism for Secure Code
+   Execution on Commodity Computers, 08/2016
+
+.. [60] https://software.intel.com/en-us/forums/intel-trusted-execution-technology-intel-txt/topic/518519
