@@ -1,0 +1,199 @@
+
+/Users/juliuszint/Desktop/mbr.orig:     file format binary
+
+
+Disassembly of section .data:
+
+00000000 <.data>:
+   0:	ea 05 00 c0 07       	ljmp   $0x7c0,$0x5
+   5:	8c c8                	mov    %cs,%ax
+   7:	8e d0                	mov    %ax,%ss
+   9:	bc fc ff             	mov    $0xfffc,%sp
+   c:	8e d8                	mov    %ax,%ds
+   e:	b8 a0 07             	mov    $0x7a0,%ax
+  11:	8e c0                	mov    %ax,%es
+  13:	31 f6                	xor    %si,%si
+  15:	31 ff                	xor    %di,%di
+  17:	b9 00 02             	mov    $0x200,%cx
+  1a:	fc                   	cld    
+  1b:	f3 a4                	rep movsb %ds:(%si),%es:(%di)
+  1d:	ea 22 00 a0 07       	ljmp   $0x7a0,$0x22
+  22:	1e                   	push   %ds                      /* reloc: */
+  23:	07                   	pop    %es
+  24:	0e                   	push   %cs
+  25:	1f                   	pop    %ds
+  26:	b4 02                	mov    $0x2,%ah                 /* shift key auslesen */
+  28:	cd 16                	int    $0x16
+  2a:	a8 03                	test   $0x3,%al
+  2c:	74 0d                	je     0x3b
+  2e:	b0 07                	mov    $0x7,%al
+  30:	e8 de 00             	call   0x111
+  33:	67 80 0d b4 01 00 00 	addr32 orb $0x1,0x1b4
+  3a:	01 
+  3b:	f6 c2 80             	test   $0x80,%dl                /* no_shift: */
+  3e:	75 08                	jne    0x48
+  40:	be 49 01             	mov    $0x149,%si
+  43:	e8 bf 00             	call   0x105
+  46:	b2 80                	mov    $0x80,%dl
+  48:	be be 01             	mov    $0x1be,%si               /* drive_ok: */
+  4b:	b9 04 00             	mov    $0x4,%cx
+  4e:	8a 04                	mov    (%si),%al                /* find_aktive: */
+  50:	3c 80                	cmp    $0x80,%al
+  52:	74 0f                	je     0x63
+  54:	83 c6 10             	add    $0x10,%si
+  57:	e2 f5                	loop   0x4e
+  59:	be 7d 01             	mov    $0x17d,%si               /* no_part: */
+  5c:	e8 a6 00             	call   0x105
+  5f:	fb                   	sti                             /* stay_stopped: */
+  60:	f4                   	hlt    
+  61:	eb fc                	jmp    0x5f
+
+  63:	88 d0                	mov    %dl,%al                  /* found: */
+  65:	24 0f                	and    $0xf,%al                 /* ausgeben welche partition gebootet wird  */
+  67:	04 30                	add    $0x30,%al                /* und danach lba / chs switch */
+  69:	a2 3a 01             	mov    %al,0x13a
+  6c:	b0 34                	mov    $0x34,%al
+  6e:	28 c8                	sub    %cl,%al
+  70:	a2 47 01             	mov    %al,0x147
+  73:	56                   	push   %si
+  74:	be 2d 01             	mov    $0x12d,%si
+  77:	67 f6 05 b4 01 00 00 	addr32 testb $0x1,0x1b4
+  7e:	01 
+  7f:	75 01                	jne    0x82
+  81:	46                   	inc    %si
+  82:	e8 80 00             	call   0x105
+  85:	5e                   	pop    %si
+  86:	26 67 c7 05 fe 01 00 	addr32 movw $0x0,%es:0x1fe
+  8d:	00 00 00 
+  90:	67 f6 05 b4 01 00 00 	addr32 testb $0x1,0x1b4
+  97:	01 
+  98:	75 34                	jne    0xce
+  9a:	88 14                	mov    %dl,(%si)
+  9c:	bb aa 55             	mov    $0x55aa,%bx
+  9f:	b4 41                	mov    $0x41,%ah
+  a1:	cd 13                	int    $0x13
+  a3:	8a 14                	mov    (%si),%dl
+  a5:	72 27                	jb     0xce
+  a7:	81 fb 55 aa          	cmp    $0xaa55,%bx
+  ab:	75 21                	jne    0xce
+  ad:	f6 c1 01             	test   $0x1,%cl
+  b0:	74 1c                	je     0xce
+
+  b2:	b0 2e                	mov    $0x2e,%al            /* do_lba: */
+  b4:	e8 5a 00             	call   0x111
+  b7:	66 8b 4c 08          	mov    0x8(%si),%ecx
+  bb:	67 66 89 0d 25 01 00 	addr32 mov %ecx,0x125
+  c2:	00 
+  c3:	56                   	push   %si
+  c4:	b4 42                	mov    $0x42,%ah
+  c6:	be 1d 01             	mov    $0x11d,%si
+  c9:	cd 13                	int    $0x13
+  cb:	5e                   	pop    %si
+  cc:	73 1a                	jae    0xe8
+
+  ce:	b0 3b                	mov    $0x3b,%al            /* do_chs:  */
+  d0:	e8 3e 00             	call   0x111
+  d3:	8a 74 01             	mov    0x1(%si),%dh
+  d6:	8b 4c 02             	mov    0x2(%si),%cx
+  d9:	b8 01 02             	mov    $0x201,%ax
+  dc:	31 db                	xor    %bx,%bx
+  de:	cd 13                	int    $0x13
+  e0:	73 06                	jae    0xe8
+  e2:	be 65 01             	mov    $0x165,%si
+  e5:	e9 74 ff             	jmp    0x5c
+
+  e8:	be 90 01             	mov    $0x190,%si           /* booting_os:  */
+  eb:	e8 17 00             	call   0x105
+  ee:	26 67 81 3d fe 01 00 	addr32 cmpw $0xaa55,%es:0x1fe
+  f5:	00 55 aa 
+  f8:	75 05                	jne    0xff
+  fa:	ea 00 7c 00 00       	ljmp   $0x0,$0x7c00
+
+  ff:	be 74 01             	mov    $0x174,%si           /* missing_os: */
+ 102:	e9 57 ff             	jmp    0x5c
+
+ 105:	50                   	push   %ax                  /* Lmessage: */
+ 106:	fc                   	cld    
+ 107:	ac                   	lods   %ds:(%si),%al
+ 108:	84 c0                	test   %al,%al
+ 10a:	74 0f                	je     0x11b
+ 10c:	e8 02 00             	call   0x111
+ 10f:	eb f6                	jmp    0x107
+
+ 111:	50                   	push   %ax                  /* Lchr:  */
+ 112:	53                   	push   %bx
+ 113:	b4 0e                	mov    $0xe,%ah
+ 115:	bb 01 00             	mov    $0x1,%bx
+ 118:	cd 10                	int    $0x10
+ 11a:	5b                   	pop    %bx
+ 11b:	58                   	pop    %ax
+ 11c:	c3                   	ret    
+
+ 11d:	10 00                	adc    %al,(%bx,%si)        /* variablen  */
+ 11f:	01 00                	add    %ax,(%bx,%si)
+ 121:	00 00                	add    %al,(%bx,%si)
+ 123:	c0 07 00             	rolb   $0x0,(%bx)
+ 126:	00 00                	add    %al,(%bx,%si)
+ 128:	00 00                	add    %al,(%bx,%si)
+ 12a:	00 00                	add    %al,(%bx,%si)
+ 12c:	00 21                	add    %ah,(%bx,%di)
+ 12e:	55                   	push   %bp                  /* messages asciii */
+ 12f:	73 69                	jae    0x19a
+ 131:	6e                   	outsb  %ds:(%si),(%dx)
+ 132:	67 20 64 72 69       	and    %ah,0x69(%edx,%esi,2)
+ 137:	76 65                	jbe    0x19e
+ 139:	20 58 2c             	and    %bl,0x2c(%bx,%si)
+ 13c:	20 70 61             	and    %dh,0x61(%bx,%si)
+ 13f:	72 74                	jb     0x1b5
+ 141:	69 74 69 6f 6e       	imul   $0x6e6f,0x69(%si),%si
+ 146:	20 59 00             	and    %bl,0x0(%bx,%di)
+ 149:	4d                   	dec    %bp
+ 14a:	42                   	inc    %dx
+ 14b:	52                   	push   %dx
+ 14c:	20 6f 6e             	and    %ch,0x6e(%bx)
+ 14f:	20 66 6c             	and    %ah,0x6c(%bp)
+ 152:	6f                   	outsw  %ds:(%si),(%dx)
+ 153:	70 70                	jo     0x1c5
+ 155:	79 20                	jns    0x177
+ 157:	6f                   	outsw  %ds:(%si),(%dx)
+ 158:	72 20                	jb     0x17a
+ 15a:	6f                   	outsw  %ds:(%si),(%dx)
+ 15b:	6c                   	insb   (%dx),%es:(%di)
+ 15c:	64 20 42 49          	and    %al,%fs:0x49(%bp,%si)
+ 160:	4f                   	dec    %di
+ 161:	53                   	push   %bx
+ 162:	0d 0a 00             	or     $0xa,%ax
+ 165:	0d 0a 52             	or     $0x520a,%ax
+ 168:	65 61                	gs popa 
+ 16a:	64 20 65 72          	and    %ah,%fs:0x72(%di)
+ 16e:	72 6f                	jb     0x1df
+ 170:	72 0d                	jb     0x17f
+ 172:	0a 00                	or     (%bx,%si),%al
+ 174:	4e                   	dec    %si
+ 175:	6f                   	outsw  %ds:(%si),(%dx)
+ 176:	20 4f 2f             	and    %cl,0x2f(%bx)
+ 179:	53                   	push   %bx
+ 17a:	0d 0a 00             	or     $0xa,%ax
+ 17d:	4e                   	dec    %si
+ 17e:	6f                   	outsw  %ds:(%si),(%dx)
+ 17f:	20 61 63             	and    %ah,0x63(%bx,%di)
+ 182:	74 69                	je     0x1ed
+ 184:	76 65                	jbe    0x1eb
+ 186:	20 70 61             	and    %dh,0x61(%bx,%si)
+ 189:	72 74                	jb     0x1ff
+ 18b:	69 74 69 6f 6e       	imul   $0x6e6f,0x69(%si),%si
+ 190:	0d 0a 00             	or     $0xa,%ax
+ 193:	90                   	nop                         /* end of code  */
+	...
+ 1b4:	00 00                	add    %al,(%bx,%si)        /* partitionstabelle */
+ 1b6:	4f                   	dec    %di
+ 1b7:	78 00                	js     0x1b9
+	...
+ 1ed:	00 80 01 02          	add    %al,0x201(%bx,%si)
+ 1f1:	00 a6 fe ff          	add    %ah,-0x2(%bp)
+ 1f5:	ff 40 00             	incw   0x0(%bx,%si)
+ 1f8:	00 00                	add    %al,(%bx,%si)
+ 1fa:	f4                   	hlt    
+ 1fb:	f1                   	icebp  
+ 1fc:	9d                   	popf   
+ 1fd:	3b 55 aa             	cmp    -0x56(%di),%dx

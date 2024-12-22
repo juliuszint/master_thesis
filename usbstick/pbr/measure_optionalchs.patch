@@ -1,0 +1,46 @@
+--- sys/arch/amd64/stand/biosboot/biosboot.S.orig0	Thu Oct 31 12:51:48 2019
++++ sys/arch/amd64/stand/biosboot/biosboot.S	Thu Oct 31 12:07:09 2019
+@@ -38,6 +38,7 @@
+ #define PBR_CANT_BOOT			'X'
+ #define PBR_BAD_MAGIC			'M'
+ #define PBR_TOO_MANY_INDIRECTS		'I'
++#define PBR_NO_CHS_SUPPORT		'C'
+ 
+ #define CHAR_BLOCK_READ		'.'
+ #define CHAR_CHS_READ		';'
+@@ -606,7 +607,26 @@ exec_boot:
+ 	ljmp $(LINKADDR >> 4), $0
+ 	/* not reached */
+ 
+-
++#ifdef NO_CHS
++/* Making the chs_load codepath optional, in order to free up space. */
++load_chs:
++	/* 
++	 * If LBA is not possible or CHS is enforced via flag/shift
++	 * print a error message and halt. 
++	 *
++	 */
++	movw $PBR_NO_CHS_SUPPORT, %ax
++	orb  %ah, %ah
++	jmp err_print_crlf
++/* 
++ * variables defined by the excluded load_chs codepath are kept to
++ * make the changes as small as possible
++ */
++nsectors:
++	.byte	0x90
++maxheads:
++	.byte	0x90
++#else
+ /*
+  * Load a single filesystem block into memory using CHS calls.
+  *
+@@ -708,6 +728,7 @@ maxheads = .+1
+ 	loop	calc_chs
+ 
+ 	ret
++#endif
+ 
+ 	/* read error */
+ read_error:

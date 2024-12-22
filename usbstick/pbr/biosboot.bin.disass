@@ -1,0 +1,218 @@
+
+/Users/juliuszint/Desktop/biosboot.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00000000 <.data>:
+   0:	eb 3c                	jmp    0x3e                 /* BIOS Parameter Block */
+   2:	90                   	nop
+   3:	4f                   	dec    %di
+   4:	70 65                	jo     0x6b
+   6:	6e                   	outsb  %ds:(%si),(%dx)
+   7:	42                   	inc    %dx
+   8:	53                   	push   %bx
+   9:	44                   	inc    %sp
+   a:	00 00                	add    %al,(%bx,%si)
+   c:	02 02                	add    (%bp,%si),%al
+   e:	00 00                	add    %al,(%bx,%si)
+  10:	00 00                	add    %al,(%bx,%si)
+  12:	00 00                	add    %al,(%bx,%si)
+  14:	00 f8                	add    %bh,%al
+  16:	00 00                	add    %al,(%bx,%si)
+  18:	00 00                	add    %al,(%bx,%si)
+  1a:	00 00                	add    %al,(%bx,%si)
+  1c:	10 00                	adc    %al,(%bx,%si)
+	...
+  26:	29 00                	sub    %ax,(%bx,%si)
+  28:	00 00                	add    %al,(%bx,%si)
+  2a:	00 55 4e             	add    %dl,0x4e(%di)
+  2d:	49                   	dec    %cx
+  2e:	58                   	pop    %ax
+  2f:	20 4c 41             	and    %cl,0x41(%si)
+  32:	42                   	inc    %dx
+  33:	45                   	inc    %bp
+  34:	4c                   	dec    %sp
+  35:	00 55 46             	add    %dl,0x46(%di)
+  38:	53                   	push   %bx
+  39:	20 34                	and    %dh,(%si)
+  3b:	2e 34 00             	cs xor $0x0,%al
+
+  3e:	ea 48 00 c0 07       	ljmp   $0x7c0,$0x48         /* begin: */
+  43:	b0 58                	mov    $0x58,%al            /* cant_boot: */
+  45:	e9 37 01             	jmp    0x17f
+  48:	31 c0                	xor    %ax,%ax              /* main: */
+  4a:	8e d0                	mov    %ax,%ss
+  4c:	bc fc 7b             	mov    $0x7bfc,%sp
+  4f:	0e                   	push   %cs
+  50:	1f                   	pop    %ds
+  51:	be e4 01             	mov    $0x1e4,%si
+  54:	88 d6                	mov    %dl,%dh
+  56:	b4 02                	mov    $0x2,%ah
+  58:	cd 16                	int    $0x16
+  5a:	0c 00                	or     $0x0,%al
+  5c:	a8 03                	test   $0x3,%al
+  5e:	74 03                	je     0x63
+  60:	4e                   	dec    %si
+  61:	30 f6                	xor    %dh,%dh
+  63:	e8 56 01             	call   0x1bc                /* no_force_chs */
+  66:	f6 c6 80             	test   $0x80,%dh
+  69:	74 1e                	je     0x89
+  6b:	52                   	push   %dx
+  6c:	bb aa 55             	mov    $0x55aa,%bx
+  6f:	b4 41                	mov    $0x41,%ah
+  71:	cd 13                	int    $0x13
+  73:	5a                   	pop    %dx
+  74:	72 13                	jb     0x89
+  76:	81 fb 55 aa          	cmp    $0xaa55,%bx
+  7a:	75 0d                	jne    0x89
+  7c:	f6 c1 01             	test   $0x1,%cl
+  7f:	74 08                	je     0x89
+  81:	c7 06 d1 01 84 01    	movw   $0x184,0x1d1
+  87:	eb 1a                	jmp    0xa3
+  89:	52                   	push   %dx                  /* no_lba */
+  8a:	b4 08                	mov    $0x8,%ah
+  8c:	cd 13                	int    $0x13
+  8e:	72 b3                	jb     0x43
+  90:	88 36 55 01          	mov    %dh,0x155
+  94:	80 e1 3f             	and    $0x3f,%cl
+  97:	74 aa                	je     0x43
+  99:	88 0e 4c 01          	mov    %cl,0x14c
+  9d:	b0 3b                	mov    $0x3b,%al
+  9f:	e8 25 01             	call   0x1c7
+  a2:	5a                   	pop    %dx
+  a3:	66 b8 90 90 90 90    	mov    $0x90909090,%eax     /* get_going  */
+  a9:	bb e0 07             	mov    $0x7e0,%bx
+  ac:	ff 16 d1 01          	call   *0x1d1
+  b0:	66 be 90 90 90 90    	mov    $0x90909090,%esi
+  b6:	bf 90 90             	mov    $0x9090,%di
+  b9:	89 f9                	mov    %di,%cx
+  bb:	83 f9 0c             	cmp    $0xc,%cx
+  be:	72 03                	jb     0xc3
+  c0:	b9 0c 00             	mov    $0xc,%cx
+  c3:	bb 00 40             	mov    $0x4000,%bx
+  c6:	b0 2e                	mov    $0x2e,%al            /* load_blocks */
+  c8:	e8 fc 00             	call   0x1c7
+  cb:	fc                   	cld    
+  cc:	66 ad                	lods   %ds:(%si),%eax
+  ce:	66 60                	pushal 
+  d0:	ff 16 d1 01          	call   *0x1d1
+  d4:	66 61                	popal  
+  d6:	81 c3 90 90          	add    $0x9090,%bx
+  da:	4f                   	dec    %di
+  db:	e2 e9                	loop   0xc6
+  dd:	09 ff                	or     %di,%di
+  df:	74 22                	je     0x103
+  e1:	b8 49 00             	mov    $0x49,%ax
+  e4:	08 e4                	or     %ah,%ah
+  e6:	0f 85 95 00          	jne    0x17f
+  ea:	fe 06 e3 00          	incb   0xe3
+  ee:	66 ad                	lods   %ds:(%si),%eax
+  f0:	53                   	push   %bx
+  f1:	bb e0 07             	mov    $0x7e0,%bx
+  f4:	ff 16 d1 01          	call   *0x1d1
+  f8:	5b                   	pop    %bx
+  f9:	66 be 00 02 00 00    	mov    $0x200,%esi
+  ff:	89 f9                	mov    %di,%cx
+ 101:	eb c3                	jmp    0xc6
+ 103:	be f3 01             	mov    $0x1f3,%si           /* done_load: */
+ 106:	e8 b3 00             	call   0x1bc
+ 109:	b8 00 40             	mov    $0x4000,%ax
+ 10c:	8e c0                	mov    %ax,%es
+ 10e:	26 81 3e 02 00 4c 46 	cmpw   $0x464c,%es:0x2
+ 115:	74 0f                	je     0x126
+ 117:	b0 4d                	mov    $0x4d,%al
+ 119:	be ee 01             	mov    $0x1ee,%si           /* err_print */
+ 11c:	a2 f2 01             	mov    %al,0x1f2
+ 11f:	e8 9a 00             	call   0x1bc
+ 122:	fb                   	sti    
+ 123:	f4                   	hlt    
+ 124:	eb fc                	jmp    0x122
+ 126:	51                   	push   %cx                  /* exec_boot */
+ 127:	88 d1                	mov    %dl,%cl
+ 129:	51                   	push   %cx
+ 12a:	66 68 0d d0 01 c0    	pushl  $0xc001d00d
+ 130:	ea 00 00 12 40       	ljmp   $0x4012,$0x0
+ 135:	e8 5d 00             	call   0x195                /* load_chs  */
+ 138:	66 a1 db 01          	mov    0x1db,%eax
+ 13c:	8b 0e d5 01          	mov    0x1d5,%cx
+ 140:	66 60                	pushal 
+ 142:	8e c3                	mov    %bx,%es
+ 144:	52                   	push   %dx
+ 145:	66 31 d2             	xor    %edx,%edx
+ 148:	66 89 d1             	mov    %edx,%ecx
+ 14b:	b1 90                	mov    $0x90,%cl
+ 14d:	66 f7 f1             	div    %ecx
+ 150:	52                   	push   %dx
+ 151:	66 31 d2             	xor    %edx,%edx
+ 154:	b1 90                	mov    $0x90,%cl
+ 156:	41                   	inc    %cx
+ 157:	66 f7 f1             	div    %ecx
+ 15a:	88 c5                	mov    %al,%ch
+ 15c:	c0 e4 06             	shl    $0x6,%ah
+ 15f:	88 e1                	mov    %ah,%cl
+ 161:	5b                   	pop    %bx
+ 162:	fe c3                	inc    %bl
+ 164:	08 d9                	or     %bl,%cl
+ 166:	58                   	pop    %ax
+ 167:	88 d6                	mov    %dl,%dh
+ 169:	88 c2                	mov    %al,%dl
+ 16b:	31 db                	xor    %bx,%bx
+ 16d:	b8 01 02             	mov    $0x201,%ax
+ 170:	e8 1d 00             	call   0x190
+ 173:	66 61                	popal  
+ 175:	66 40                	inc    %eax
+ 177:	83 c3 20             	add    $0x20,%bx
+ 17a:	e2 c4                	loop   0x140
+ 17c:	c3                   	ret    
+ 17d:	b0 52                	mov    $0x52,%al            /* read_error:  */
+ 17f:	be ec 01             	mov    $0x1ec,%si
+ 182:	eb 98                	jmp    0x11c
+ 184:	e8 0e 00             	call   0x195                /* load_lba */
+ 187:	89 1e d9 01          	mov    %bx,0x1d9
+ 18b:	be d3 01             	mov    $0x1d3,%si
+ 18e:	b4 42                	mov    $0x42,%ah
+ 190:	cd 13                	int    $0x13
+ 192:	72 e9                	jb     0x17d
+ 194:	c3                   	ret    
+ 195:	b9 20 90             	mov    $0x9020,%cx          /* fsbtosector */
+ 198:	66 50                	push   %eax
+ 19a:	28 e9                	sub    %ch,%cl
+ 19c:	66 d3 e8             	shr    %cl,%eax
+ 19f:	66 a3 df 01          	mov    %eax,0x1df
+ 1a3:	66 58                	pop    %eax
+ 1a5:	88 e9                	mov    %ch,%cl
+ 1a7:	66 d3 e0             	shl    %cl,%eax
+ 1aa:	66 05 90 90 90 90    	add    $0x90909090,%eax
+ 1b0:	66 a3 db 01          	mov    %eax,0x1db
+ 1b4:	73 05                	jae    0x1bb
+ 1b6:	66 ff 06 df 01       	incl   0x1df
+ 1bb:	c3                   	ret    
+ 1bc:	fc                   	cld                         /* Lmessage: */
+ 1bd:	ac                   	lods   %ds:(%si),%al
+ 1be:	08 c0                	or     %al,%al
+ 1c0:	74 0e                	je     0x1d0
+ 1c2:	e8 02 00             	call   0x1c7
+ 1c5:	eb f6                	jmp    0x1bd
+ 1c7:	53                   	push   %bx                  /* Lchr */
+ 1c8:	b4 0e                	mov    $0xe,%ah
+ 1ca:	31 db                	xor    %bx,%bx
+ 1cc:	43                   	inc    %bx
+ 1cd:	cd 10                	int    $0x10
+ 1cf:	5b                   	pop    %bx
+ 1d0:	c3                   	ret    
+ 1d1:	35 01 10             	xor    $0x1001,%ax          /* variablen, error messages, signatur */
+	...
+ 1e0:	00 00                	add    %al,(%bx,%si)
+ 1e2:	00 21                	add    %ah,(%bx,%di)
+ 1e4:	4c                   	dec    %sp
+ 1e5:	6f                   	outsw  %ds:(%si),(%dx)
+ 1e6:	61                   	popa   
+ 1e7:	64 69 6e 67 00 0d    	imul   $0xd00,%fs:0x67(%bp),%bp
+ 1ed:	0a 45 52             	or     0x52(%di),%al
+ 1f0:	52                   	push   %dx
+ 1f1:	20 3f                	and    %bh,(%bx)
+ 1f3:	0d 0a 00             	or     $0xa,%ax
+	...
+ 1fe:	55                   	push   %bp
+ 1ff:	aa                   	stos   %al,%es:(%di)

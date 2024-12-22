@@ -1,0 +1,176 @@
+--- ./sys/arch/amd64/stand/libsa/cmd_i386.c.orig	2019-11-04 17:11:10.000000000 +0100
++++ ./sys/arch/amd64/stand/libsa/cmd_i386.c	2020-01-18 17:44:33.000000000 +0100
+@@ -36,6 +36,7 @@
+ #include "biosdev.h"
+ #include "libsa.h"
+ #include <cmd.h>
++#include <tpm.h>
+ 
+ #ifdef EFIBOOT
+ #include "efiboot.h"
+@@ -49,6 +50,7 @@ int Xcomaddr(void);
+ int Xdiskinfo(void);
+ int Xmemory(void);
+ int Xregs(void);
++int Xtpm(void);
+ 
+ /* From gidt.S */
+ int bootbuf(void *, int);
+@@ -60,6 +62,7 @@ const struct cmd_table cmd_machine[] = {
+ 	{ "comaddr",	CMDT_CMD, Xcomaddr },
+ 	{ "diskinfo",	CMDT_CMD, Xdiskinfo },
+ 	{ "memory",	CMDT_CMD, Xmemory },
++	{ "tpm",	CMDT_CMD, Xtpm },
+ #ifdef EFIBOOT
+ 	{ "video",	CMDT_CMD, Xvideo_efi },
+ 	{ "gop",	CMDT_CMD, Xgop_efi },
+@@ -72,6 +75,149 @@ const struct cmd_table cmd_machine[] = {
+ 	{ NULL, 0 }
+ };
+ 
++/**
++ * print_memory - debugging functionality to dump memory region to screen
++ * @buf:        memory location to begin dump
++ * @rows:       rows to print
++ * @columns:    columns to print
++ *
++ * Remarks: total bytes dumped = rows * columns
++ */
++void
++print_memory(void* buf, uint32_t rows, uint32_t columns)
++{
++        uint8_t* iter = buf;
++        for(int i = 0; i < rows; i++) {
++                printf("%03x:", i * columns);
++                for(int k = 0; k < columns; k++) {
++                        printf(" %02x", *iter);
++                        iter++;
++                }
++                printf("\n");
++        }
++}
++
++#define SECRET_BLK_OFF 1
++
++int
++Xtpm(void)
++{
++        int rc;
++        uint8_t major = 0;
++        uint8_t minor = 0;
++        rc = tpm_statuscheck(&major, &minor);
++	if(rc != 0) {
++                printf("No TCG compliant BIOS available.\n");
++	}
++	else if(major != 1 && minor != 2) {
++                printf("Incompatible TCG BIOS version: %u.%u\n", major, minor);
++	}
++	if (cmd.argc < 2) {
++                printf("machine tpm r[andom]|p[cr]|u[nseal] [DiskNumber]|s[eal] secret [DiskNumber]\n");
++                printf("strlen(secret) <= 100\n");
++                return 0;
++        }
++        switch(cmd.argv[1][0]) {
++            case 'r': {
++                char random_buf[20];
++                tpm_random(random_buf, 20);
++                print_memory(random_buf, 2, 10);
++            } break;
++            case 'p': {
++                tpm_printpcr(0, 15);
++            } break;
++            case 'u': {
++                // load secret disk block
++                int disk_number = 0x80;
++                if(cmd.argc == 3) {
++                    disk_number = (int)strtol(cmd.argv[2], NULL, 0);
++                }
++                unsigned char* secret_disk_block = alloc(512);
++                memset(secret_disk_block, 0x00, 512);
++                struct diskinfo * disk_info = dklookup(disk_number);
++                if(disk_info == NULL) {
++                        printf("IO Error - Disk %x not found\n", disk_number);
++                        goto unseal_end;
++                }
++                rc = biosd_diskio(F_READ, disk_info, SECRET_BLK_OFF, 1, secret_disk_block);
++                if(rc != 0) {
++                        printf("IO Error \n");
++                        goto unseal_end;
++                }
++                if (secret_disk_block[0] != 'A' ||
++                    secret_disk_block[1] != 'E' ||
++                    secret_disk_block[2] != 'M' ||
++                    secret_disk_block[3] != 'S')
++                {
++                        printf("No sealed secret found on disk");
++                        goto unseal_end;
++                }
++                uint32_t sealed_size = *((uint32_t*)(secret_disk_block + 4));
++                unsigned char* sealed_data = secret_disk_block + 8;
++                if(sealed_size > 512) {
++                        printf("Invalid size for sealed data\n");
++                        goto unseal_end;
++                }
++
++                // unseal data
++                char unsealed_secret[100];
++                uint32_t unsealed_size = 100;
++                memset(unsealed_secret, 0x00, 100);
++                rc = tpm_unsealdata(
++                    sealed_data,
++                    sealed_size,
++                    unsealed_secret,
++                    &unsealed_size);
++                if(rc == 0) {
++                        printf("Secret: %s \n", unsealed_secret);
++                }
++unseal_end:
++                free(secret_disk_block, 512);
++                secret_disk_block = NULL;
++            } break;
++            case 's': {
++                if(cmd.argc < 3) {
++                        printf("no secret specified to seal\n");
++                }
++                int disk_number = 0x80;
++                if(cmd.argc == 4) {
++                    disk_number = (int)strtol(cmd.argv[3], NULL, 0);
++                }
++                unsigned char* secret_disk_block = alloc(512);
++                memset(secret_disk_block, 0x00, 512);
++
++                char* secret = cmd.argv[2];
++                uint32_t secret_length = strlen(secret);
++                uint32_t sealed_size = 512;
++                char* sealed_data = secret_disk_block + 8;
++                rc = tpm_sealdata(secret, secret_length, sealed_data, &sealed_size);
++                if(rc != 0) {
++                        goto seal_end;
++                }
++                secret_disk_block[0] = 'A';
++                secret_disk_block[1] = 'E';
++                secret_disk_block[2] = 'M';
++                secret_disk_block[3] = 'S';
++                memcpy(secret_disk_block + 4, &sealed_size, sizeof(uint32_t));
++
++                struct diskinfo * disk_info = dklookup(disk_number);
++                if(disk_info == NULL) {
++                        printf("IO Error - Disk 0x%x not found\n", disk_number);
++                        goto seal_end;
++                }
++                rc = biosd_diskio(F_WRITE, disk_info, 1, 1, secret_disk_block);
++                if(rc != 0) {
++                        printf("IO Error \n");
++                        goto seal_end;
++                }
++seal_end:
++                free(secret_disk_block, 512);
++                secret_disk_block = NULL;
++            } break;
++        }
++        return 0;
++}
++
+ int
+ Xdiskinfo(void)
+ {

@@ -1,0 +1,134 @@
+--- ./sys/arch/amd64/stand/biosboot/biosboot.S.orig	2019-11-11 09:54:08.000000000 +0100
++++ ./sys/arch/amd64/stand/biosboot/biosboot.S	2020-01-13 09:53:19.000000000 +0100
+@@ -38,6 +38,7 @@
+ #define PBR_CANT_BOOT			'X'
+ #define PBR_BAD_MAGIC			'M'
+ #define PBR_TOO_MANY_INDIRECTS		'I'
++#define PBR_NO_CHS_SUPPORT		'C'
+ 
+ #define CHAR_BLOCK_READ		'.'
+ #define CHAR_CHS_READ		';'
+@@ -561,7 +562,7 @@ done_load:
+ 	 * needed.)
+ 	 */
+ 	cmpw	$LFMAGIC, %es:2(,1)
+-	je	exec_boot
++	je	tpm_measure
+ 
+ 	movb	$PBR_BAD_MAGIC, %al
+ 
+@@ -576,6 +577,72 @@ stay_stopped:
+ 	hlt				/* (don't require power cycle) */
+ 	jmp	stay_stopped		/* Just to make sure :-) */
+ 
++tpm_measure:
++#ifdef TPM_MEASURE
++	/*
++	 * BIOS call "INT 0x1a TCG_StatusCheck"
++	 *	On entry 	%ah = 0xBB
++	 * 			%al = 0x00
++	 *	On return:
++	 * 			%eax = returncode, set to 0 if supported
++	 *			%ebx = 0x41504353
++	 *			%ch  = TCG BIOS Major Version
++	 *			%cl  = TCG BIOS Minor Version
++	 *			%edx = BIOS TCG Feature Flags
++	 *			%esi = absolute pointer to event log
++	 *			%edi = pointer to eventlog
++	 * From: TCG PC Client Specific Implementation Specification for
++	 *       Conventional BIOS (Version 1.20 FINAL, July 13, 2005)
++	 */
++	pushw	%dx
++	movw	$0xbb00, %ax
++	int	$0x1a
++	test	%eax, %eax
++	jnz	tpm_measure_end
++	cmp	$0x41504354, %ebx
++	jnz	tpm_measure_end
++
++	/* We need the byte length of /boot. the inode is already in memory
++	 * and contains the file_size in bytes at offset 8.
++	 *
++	 * /usr/include/ufs/ufs/dinode.h for the details:
++	 * Offset  0x8: 64-bit file size (only use low 32 bits)
++	 */
++        movl    inodedbl, %esi
++	movl	-32(%esi), %ecx
++
++	/*
++	 * BIOS call "INT 0x1a TCG_CompactHashLogExtendEvent"
++	 *	On entry 	%ah  = 0xBB
++	 * 			%al  = 0x07
++	 *			%es  = Segment portion of buffer to be hashed
++	 *			%di  = Offset  portion of buffer to be hashed
++	 *			%esi = The informative value for event field
++	 *			%ebx = 0x41504354
++	 *			%ecx = Length in bytes of the buffer to be hashed
++	 *			%edx = The PCRIndex to be extended
++	 *	On return:
++	 *			%eax = Return Code as defined in section
++	 *			%edx = event number of the event that was logged
++	 *			All other registers are preserved
++	 *
++	 * From: TCG PC Client Specific Implementation Specification for
++	 *       Conventional BIOS (Version 1.20 FINAL, July 13, 2005)
++	 */
++	movw	$(LOADADDR >> 4), %bx
++	movw	%bx, %es
++	xorw	%di, %di
++	xorl	%esi, %esi
++	movl	$0x41504354, %ebx
++	movl    $0x09, %edx
++	movw	$0xbb07, %ax
++	int	$0x1a
++
++tpm_measure_end:
++	xorw	%cx, %cx
++	popw	%dx
++#endif
++
+ exec_boot:
+ 	/* At this point we could try to use the entry point in
+ 	 * the image we just loaded.  But if we do that, we also
+@@ -607,6 +674,7 @@ exec_boot:
+ 	/* not reached */
+ 
+ 
++load_chs:
+ /*
+  * Load a single filesystem block into memory using CHS calls.
+  *
+@@ -617,7 +685,24 @@ exec_boot:
+  * Output:	block successfully read in (panics if not)
+  *		all general purpose registers may have been trashed
+  */
+-load_chs:
++#ifdef NO_CHS
++	/* 
++	 * If LBA is not possible or CHS is enforced via flag/shift
++	 * print a error message and halt. 
++	 *
++	 */
++	movw $PBR_NO_CHS_SUPPORT, %ax
++	orb  %ah, %ah
++	jmp err_print_crlf
++/* 
++ * variables defined by the excluded load_chs codepath are kept to
++ * make the changes as small as possible
++ */
++nsectors:
++	.byte	0x90
++maxheads:
++	.byte	0x90
++#else
+ 	/*
+ 	 * BIOS call "INT 0x13 Function 0x2" to read sectors from disk into
+ 	 * memory.
+@@ -708,6 +793,7 @@ maxheads = .+1
+ 	loop	calc_chs
+ 
+ 	ret
++#endif
+ 
+ 	/* read error */
+ read_error:

@@ -1,0 +1,16 @@
+--- ./sys/arch/amd64/stand/libsa/gidt.S.orig	2019-11-07 18:04:10.000000000 +0100
++++ ./sys/arch/amd64/stand/libsa/gidt.S	2019-11-08 13:40:07.000000000 +0100
+@@ -425,11 +425,13 @@ intno	= . - 1
+ 
+ 	/* clear NT flag in eflags */
+ 	/* Martin Fredriksson <martin@gbg.netman.se> */
++        push    %eax
+ 	pushf
+ 	pop	%eax
+ 	and	$0xffffbfff, %eax
+ 	push	%eax
+ 	popf
++        pop     %eax
+ 
+ 	/* save registers into save area */
+ 	movl	%eax, _C_LABEL(BIOS_regs)+BIOSR_AX

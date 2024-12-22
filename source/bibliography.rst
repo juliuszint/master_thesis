@@ -150,3 +150,11 @@ Bibliography
 
 .. [52] Bryan Jeffrey Parno Trust Extension as a Mechanism for Secure Code
    Execution on Commodity Computers, 08/2016
+
+.. [60] https://software.intel.com/en-us/forums/intel-trusted-execution-technology-intel-txt/topic/518519
+
+.. [61] Email correspondence with author Patrik Hagara (usbstick)
+
+.. [62] QubesOS HCL, https://www.qubes-os.org/hcl/
+
+.. [63] QubesOS AEM Documentation, https://www.qubes-os.org/doc/anti-evil-maid/

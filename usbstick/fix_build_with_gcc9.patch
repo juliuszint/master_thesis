@@ -1,0 +1,359 @@
+diff --git a/configure.ac b/configure.ac
+index edd184154..2b48b2e1e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -459,7 +459,7 @@ AC_SUBST(BUILD_EXEEXT)
+ # For gnulib.
+ gl_INIT
+ 
+-WARN_FLAGS="-Wall -W -Wshadow -Wpointer-arith -Wundef -Wchar-subscripts -Wcomment -Wdeprecated-declarations -Wdisabled-optimization -Wdiv-by-zero -Wfloat-equal -Wformat-extra-args -Wformat-security -Wformat-y2k -Wimplicit -Wimplicit-function-declaration -Wimplicit-int -Wmain -Wmissing-braces -Wmissing-format-attribute -Wmultichar -Wparentheses -Wreturn-type -Wsequence-point -Wshadow -Wsign-compare -Wswitch -Wtrigraphs -Wunknown-pragmas -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wunused-value  -Wunused-variable -Wwrite-strings -Wnested-externs -Wstrict-prototypes"
++WARN_FLAGS="-Wall -W -Wshadow -Wpointer-arith -Wundef -Wchar-subscripts -Wcomment -Wdeprecated-declarations -Wdisabled-optimization -Wdiv-by-zero -Wfloat-equal -Wformat-extra-args -Wformat-security -Wformat-y2k -Wimplicit -Wimplicit-function-declaration -Wimplicit-int -Wmain -Wmissing-braces -Wmissing-format-attribute -Wmultichar -Wparentheses -Wreturn-type -Wsequence-point -Wshadow -Wsign-compare -Wswitch -Wtrigraphs -Wunknown-pragmas -Wunused -Wunused-function -Wunused-label -Wunused-parameter -Wno-unused-value  -Wunused-variable -Wwrite-strings -Wnested-externs -Wstrict-prototypes"
+ EXTRA_WARN_FLAGS="-Wextra -Wattributes -Wendif-labels -Winit-self -Wint-to-pointer-cast -Winvalid-pch -Wmissing-field-initializers -Wnonnull -Woverflow -Wvla -Wpointer-to-int-cast -Wstrict-aliasing -Wvariadic-macros -Wvolatile-register-var -Wpointer-sign -Wmissing-include-dirs -Wmissing-prototypes -Wmissing-declarations -Wformat=2"
+ 
+ HOST_CFLAGS="$HOST_CFLAGS $WARN_FLAGS -Wcast-align"
+diff --git a/grub-core/commands/usbtest.c b/grub-core/commands/usbtest.c
+index 01cdca934..2c6d93fe6 100644
+--- a/grub-core/commands/usbtest.c
++++ b/grub-core/commands/usbtest.c
+@@ -63,6 +63,11 @@ static const char *usb_devspeed[] =
+     "High"
+   };
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
++#endif
++
+ static grub_usb_err_t
+ grub_usb_get_string (grub_usb_device_t dev, grub_uint8_t index, int langid,
+ 		     char **string)
+@@ -108,6 +113,10 @@ grub_usb_get_string (grub_usb_device_t dev, grub_uint8_t index, int langid,
+   return GRUB_USB_ERR_NONE;
+ }
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic pop
++#endif
++
+ static void
+ usb_print_str (const char *description, grub_usb_device_t dev, int idx)
+ {
+diff --git a/grub-core/fs/btrfs.c b/grub-core/fs/btrfs.c
+index 4849c1ceb..be195448d 100644
+--- a/grub-core/fs/btrfs.c
++++ b/grub-core/fs/btrfs.c
+@@ -175,7 +175,7 @@ struct grub_btrfs_time
+ {
+   grub_int64_t sec;
+   grub_uint32_t nanosec;
+-} __attribute__ ((aligned (4)));
++} GRUB_PACKED;
+ 
+ struct grub_btrfs_inode
+ {
+diff --git a/grub-core/fs/cpio_common.c b/grub-core/fs/cpio_common.c
+index 50fea47d1..b4bc859ba 100644
+--- a/grub-core/fs/cpio_common.c
++++ b/grub-core/fs/cpio_common.c
+@@ -36,6 +36,11 @@ struct grub_archelp_data
+   grub_off_t size;
+ };
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
++#endif
++
+ static grub_err_t
+ grub_cpio_find_file (struct grub_archelp_data *data, char **name,
+ 		     grub_int32_t *mtime, grub_uint32_t *mode)
+@@ -96,6 +101,10 @@ grub_cpio_find_file (struct grub_archelp_data *data, char **name,
+   return GRUB_ERR_NONE;
+ }
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic pop
++#endif
++
+ static char *
+ grub_cpio_get_link_target (struct grub_archelp_data *data)
+ {
+diff --git a/grub-core/fs/hfsplus.c b/grub-core/fs/hfsplus.c
+index 21159e858..244d662df 100644
+--- a/grub-core/fs/hfsplus.c
++++ b/grub-core/fs/hfsplus.c
+@@ -661,6 +661,7 @@ list_nodes (void *record, void *hook_arg)
+   char *filename;
+   int i;
+   struct grub_fshelp_node *node;
++  grub_uint16_t *keyname;
+   struct grub_hfsplus_catfile *fileinfo;
+   enum grub_fshelp_filetype type = GRUB_FSHELP_UNKNOWN;
+   struct list_nodes_ctx *ctx = hook_arg;
+@@ -719,32 +720,34 @@ list_nodes (void *record, void *hook_arg)
+   if (! filename)
+     return 0;
+ 
++  keyname = grub_malloc (grub_be_to_cpu16 (catkey->namelen) * sizeof (*keyname));
++  if (!keyname)
++    {
++      grub_free (filename);
++      return 0;
++    }
++
+   /* Make sure the byte order of the UTF16 string is correct.  */
+   for (i = 0; i < grub_be_to_cpu16 (catkey->namelen); i++)
+     {
+-      catkey->name[i] = grub_be_to_cpu16 (catkey->name[i]);
++      keyname[i] = grub_be_to_cpu16 (catkey->name[i]);
+ 
+-      if (catkey->name[i] == '/')
+-	catkey->name[i] = ':';
++      if (keyname[i] == '/')
++	keyname[i] = ':';
+ 
+       /* If the name is obviously invalid, skip this node.  */
+-      if (catkey->name[i] == 0)
++      if (keyname[i] == 0)
+ 	{
++	  grub_free (keyname);
+ 	  grub_free (filename);
+ 	  return 0;
+ 	}
+     }
+ 
+-  *grub_utf16_to_utf8 ((grub_uint8_t *) filename, catkey->name,
++  *grub_utf16_to_utf8 ((grub_uint8_t *) filename, keyname,
+ 		       grub_be_to_cpu16 (catkey->namelen)) = '\0';
+ 
+-  /* Restore the byte order to what it was previously.  */
+-  for (i = 0; i < grub_be_to_cpu16 (catkey->namelen); i++)
+-    {
+-      if (catkey->name[i] == ':')
+-	catkey->name[i] = '/';
+-      catkey->name[i] = grub_be_to_cpu16 (catkey->name[i]);
+-    }
++  grub_free (keyname);
+ 
+   /* hfs+ is case insensitive.  */
+   if (! ctx->dir->data->case_sensitive)
+@@ -975,6 +978,7 @@ grub_hfsplus_label (grub_device_t device, char **label)
+   grub_disk_t disk = device->disk;
+   struct grub_hfsplus_catkey *catkey;
+   int i, label_len;
++  grub_uint16_t *label_name;
+   struct grub_hfsplus_key_internal intern;
+   struct grub_hfsplus_btnode *node = NULL;
+   grub_disk_addr_t ptr = 0;
+@@ -1003,22 +1007,41 @@ grub_hfsplus_label (grub_device_t device, char **label)
+     grub_hfsplus_btree_recptr (&data->catalog_tree, node, ptr);
+ 
+   label_len = grub_be_to_cpu16 (catkey->namelen);
++  label_name = grub_malloc (label_len * sizeof (*label_name));
++  if (!label_name)
++    {
++      grub_free (node);
++      grub_free (data);
++      return grub_errno;
++    }
++
+   for (i = 0; i < label_len; i++)
+     {
+-      catkey->name[i] = grub_be_to_cpu16 (catkey->name[i]);
++      label_name[i] = grub_be_to_cpu16 (catkey->name[i]);
+ 
+       /* If the name is obviously invalid, skip this node.  */
+-      if (catkey->name[i] == 0)
+-	return 0;
++      if (label_name[i] == 0)
++	{
++	  grub_free (label_name);
++	  grub_free (node);
++	  grub_free (data);
++	  return 0;
++	}
+     }
+ 
+   *label = grub_malloc (label_len * GRUB_MAX_UTF8_PER_UTF16 + 1);
+   if (! *label)
+-    return grub_errno;
++    {
++      grub_free (label_name);
++      grub_free (node);
++      grub_free (data);
++      return grub_errno;
++    }
+ 
+-  *grub_utf16_to_utf8 ((grub_uint8_t *) (*label), catkey->name,
++  *grub_utf16_to_utf8 ((grub_uint8_t *) (*label), label_name,
+ 		       label_len) = '\0';
+ 
++  grub_free (label_name);
+   grub_free (node);
+   grub_free (data);
+ 
+diff --git a/grub-core/fs/jfs.c b/grub-core/fs/jfs.c
+index aab3e8c7b..8b29a97cf 100644
+--- a/grub-core/fs/jfs.c
++++ b/grub-core/fs/jfs.c
+@@ -505,6 +505,10 @@ le_to_cpu16_copy (grub_uint16_t *out, grub_uint16_t *in, grub_size_t len)
+     *out++ = grub_le_to_cpu16 (*in++);
+ }
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
++#endif
+ 
+ /* Read in the next dirent from the directory described by DIRO.  */
+ static grub_err_t
+@@ -582,6 +586,9 @@ grub_jfs_getent (struct grub_jfs_diropen *diro)
+   return 0;
+ }
+ 
++#if __GNUC__ >= 9
++#pragma GCC diagnostic pop
++#endif
+ 
+ /* Read LEN bytes from the file described by DATA starting with byte
+    POS.  Return the amount of read bytes in READ.  */
+diff --git a/grub-core/kern/efi/efi.c b/grub-core/kern/efi/efi.c
+index d467785fc..a1ab7191a 100644
+--- a/grub-core/kern/efi/efi.c
++++ b/grub-core/kern/efi/efi.c
+@@ -360,6 +360,7 @@ grub_efi_get_filename (grub_efi_device_path_t *dp0)
+ 	{
+ 	  grub_efi_file_path_device_path_t *fp;
+ 	  grub_efi_uint16_t len;
++	  grub_efi_char16_t *dup_name;
+ 
+ 	  *p++ = '/';
+ 
+@@ -370,7 +371,16 @@ grub_efi_get_filename (grub_efi_device_path_t *dp0)
+ 	  while (len > 0 && fp->path_name[len - 1] == 0)
+ 	    len--;
+ 
+-	  p = (char *) grub_utf16_to_utf8 ((unsigned char *) p, fp->path_name, len);
++	  dup_name = grub_malloc (len * sizeof (*dup_name));
++	  if (!dup_name)
++	    {
++	      grub_free (name);
++	      return NULL;
++	    }
++	  p = (char *) grub_utf16_to_utf8 ((unsigned char *) p,
++					    grub_memcpy (dup_name, fp->path_name, len * sizeof (*dup_name)),
++					    len);
++	  grub_free (dup_name);
+ 	}
+ 
+       dp = GRUB_EFI_NEXT_DEVICE_PATH (dp);
+@@ -800,9 +810,20 @@ grub_efi_print_device_path (grub_efi_device_path_t *dp)
+ 		fp = (grub_efi_file_path_device_path_t *) dp;
+ 		buf = grub_malloc ((len - 4) * 2 + 1);
+ 		if (buf)
+-		  *grub_utf16_to_utf8 (buf, fp->path_name,
++		  {
++		    grub_efi_char16_t *dup_name = grub_malloc (len - 4);
++		    if (!dup_name)
++		      {
++			grub_errno = GRUB_ERR_NONE;
++			grub_printf ("/File((null))");
++			grub_free (buf);
++			break;
++		      }
++		    *grub_utf16_to_utf8 (buf, grub_memcpy (dup_name, fp->path_name, len - 4),
+ 				       (len - 4) / sizeof (grub_efi_char16_t))
+-		    = '\0';
++		      = '\0';
++		    grub_free (dup_name);
++		  }
+ 		else
+ 		  grub_errno = GRUB_ERR_NONE;
+ 		grub_printf ("/File(%s)", buf);
+diff --git a/grub-core/loader/efi/chainloader.c b/grub-core/loader/efi/chainloader.c
+index adc856366..8bddb04d9 100644
+--- a/grub-core/loader/efi/chainloader.c
++++ b/grub-core/loader/efi/chainloader.c
+@@ -110,21 +110,27 @@ static void
+ copy_file_path (grub_efi_file_path_device_path_t *fp,
+ 		const char *str, grub_efi_uint16_t len)
+ {
+-  grub_efi_char16_t *p;
++  grub_efi_char16_t *p, *path_name;
+   grub_efi_uint16_t size;
+ 
+   fp->header.type = GRUB_EFI_MEDIA_DEVICE_PATH_TYPE;
+   fp->header.subtype = GRUB_EFI_FILE_PATH_DEVICE_PATH_SUBTYPE;
+ 
+-  size = grub_utf8_to_utf16 (fp->path_name, len * GRUB_MAX_UTF16_PER_UTF8,
++  path_name = grub_malloc (len * GRUB_MAX_UTF16_PER_UTF8 * sizeof (*path_name));
++  if (!path_name)
++    return;
++
++  size = grub_utf8_to_utf16 (path_name, len * GRUB_MAX_UTF16_PER_UTF8,
+ 			     (const grub_uint8_t *) str, len, 0);
+-  for (p = fp->path_name; p < fp->path_name + size; p++)
++  for (p = path_name; p < path_name + size; p++)
+     if (*p == '/')
+       *p = '\\';
+ 
++  grub_memcpy (fp->path_name, path_name, size * sizeof (*fp->path_name));
+   /* File Path is NULL terminated */
+   fp->path_name[size++] = '\0';
+   fp->header.length = size * sizeof (grub_efi_char16_t) + sizeof (*fp);
++  grub_free (path_name);
+ }
+ 
+ static grub_efi_device_path_t *
+diff --git a/include/grub/acpi.h b/include/grub/acpi.h
+index 66148f684..84f49487d 100644
+--- a/include/grub/acpi.h
++++ b/include/grub/acpi.h
+@@ -93,7 +93,7 @@ struct grub_acpi_madt
+   grub_uint32_t lapic_addr;
+   grub_uint32_t flags;
+   struct grub_acpi_madt_entry_header entries[0];
+-};
++} GRUB_PACKED;
+ 
+ enum
+   {
+diff --git a/include/grub/efiemu/runtime.h b/include/grub/efiemu/runtime.h
+index 9b6b729f4..36d2dedf4 100644
+--- a/include/grub/efiemu/runtime.h
++++ b/include/grub/efiemu/runtime.h
+@@ -29,7 +29,7 @@ struct grub_efiemu_ptv_rel
+ 
+ struct efi_variable
+ {
+-  grub_efi_guid_t guid;
++  grub_efi_packed_guid_t guid;
+   grub_uint32_t namelen;
+   grub_uint32_t size;
+   grub_efi_uint32_t attributes;
+diff --git a/include/grub/gpt_partition.h b/include/grub/gpt_partition.h
+index 1b32f6725..9668a68c3 100644
+--- a/include/grub/gpt_partition.h
++++ b/include/grub/gpt_partition.h
+@@ -28,7 +28,7 @@ struct grub_gpt_part_type
+   grub_uint16_t data2;
+   grub_uint16_t data3;
+   grub_uint8_t data4[8];
+-} __attribute__ ((aligned(8)));
++} GRUB_PACKED;
+ typedef struct grub_gpt_part_type grub_gpt_part_type_t;
+ 
+ #define GRUB_GPT_PARTITION_TYPE_EMPTY \
+diff --git a/include/grub/hfs.h b/include/grub/hfs.h
+index d935f5005..e27993c42 100644
+--- a/include/grub/hfs.h
++++ b/include/grub/hfs.h
+@@ -29,7 +29,7 @@ struct grub_hfs_extent
+   /* The first physical block.  */
+   grub_uint16_t first_block;
+   grub_uint16_t count;
+-};
++} GRUB_PACKED;
+ 
+ /* HFS stores extents in groups of 3.  */
+ typedef struct grub_hfs_extent grub_hfs_datarecord_t[3];

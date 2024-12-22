@@ -296,18 +296,18 @@ system. The analysis, similar to that of the other test system, explores the
 technical architecture and evaluates its functionality, complexity, and
 user-friendliness.
 
+.. _Technical Details QubesAEM:
+
 Technical details
 -----------------
 
-.. TODO: ref
-
 Similar to the TrustedGRUB2-based system, the disk is partitioned utilizing the
 partition table located in the Master Boot Record (MBR). As demonstrated by the
-``fdisk`` and ``lsblk`` outputs in Listing 3.5, the disk was segmented during
-installation into an unencrypted boot partition and a LUKS-encrypted partition.
-While the partitioning methodologies are consistent across both systems,
-significant differences arise in the implementation of their respective Roots of
-Trust for Measurement (RTM).
+``fdisk`` and ``lsblk`` outputs in :numref:`qubes-aem-partitions`, the disk was
+segmented during installation into an unencrypted boot partition and a
+LUKS-encrypted partition. While the partitioning methodologies are consistent
+across both systems, significant differences arise in the implementation of
+their respective Roots of Trust for Measurement (RTM).
 
 Qubes-AEM employs a Dynamic Root of Trust for Measurement (DRTM). However,
 during the boot process, a Static Root of Trust for Measurement (SRTM) chain is
@@ -410,9 +410,10 @@ the password to decrypt the hard drive. Following this, the first major
 distinction becomes evident. Qubes-AEM begins the sealing process for the
 defined secrets, binding them to the contents of PCR 13, 17, 18, and 19.
 
-``PCR 13`` is extended by Qubes-AEM with the LUKS header of the encrypted partition,
-while the remaining PCR contents have already been discussed. Beyond the
-user-created file ``secret.txt``, Qubes-AEM attempts to seal additional items:
+``PCR 13`` is extended by Qubes-AEM with the LUKS header of the encrypted
+partition, while the remaining PCR contents have already been discussed. Beyond
+the user-created file ``secret.txt``, Qubes-AEM attempts to seal additional
+items:
 
 1. Shared secret for a Time-Based One-Time Password Algorithm (T-OTP): ``secret.otp``.
 
@@ -425,18 +426,355 @@ functionality. With the initial sealing process complete, the integrity of the
 system can be verified during subsequent boots, even before entering the FDE
 password.
 
+.. figure:: ./_static/qubes_login_srk.png
+   :name: qubes-login-srk
+   :alt: Qubes AEM login SRK
+   :align: center
+   :scale: 20
+
+   Qubes AEM Login SRK
+
+Immediately after startup, the system prompts for the SRK password. This step
+prevents unauthorized individuals from accessing the secret and using it to set
+up a compromised system. Such a manipulated system could, irrespective of the
+software being executed, display the secret without discrepancy. As a result,
+the victim would be unable to discern whether the system has been tampered with,
+thereby compromising the confidentiality of the FDE password.
+
+Qubes-AEM also allows configuring a USB stick as a boot medium. In such a setup,
+the use of an SRK password becomes optional, offering a trade-off between
+usability and security. However, a TPM with an active SRK password provides an
+additional layer of protection and is therefore inherently more secure than a
+TPM without one. Following the password entry (if required), the unsealing
+process is initiated, and the secret is displayed.
+
+.. figure:: ./_static/qubes_login_secret.png
+   :name: qubes-login-secret
+   :alt: Qubes AEM login secret
+   :align: center
+   :scale: 20
+
+   Qubes AEM Login secret
+
+:numref:`qubes-login-secret` illustrates the Qubes-OS login screen presented
+after entering the SRK password. It displays the secret specified during
+installation, labeled **SECRET**, alongside a prompt advising that the FDE
+password should only be entered if the secret is verified as correct. Since the
+secret is known exclusively to the user, it can only be displayed if the TPM
+permits unsealing. This process occurs solely when the PCR values match those
+recorded during the sealing process. Maintaining these values requires the
+measured components, such as the Linux kernel or the hypervisor, to remain
+unaltered.
+
+This demonstrates the concept of a platform-state-bound secret and underscores
+the critical role of safeguarding the secret in maintaining security. Without
+proper confidentiality of the secret, the system's security is fundamentally
+compromised.
+
+With this foundational understanding, we now turn to a more detailed examination
+of the technical implementation of Qubes-AEM. To achieve this, we first analyze
+the environment that is active at the time of login.
+
+Before the actual root filesystem is mounted, the Linux kernel operates using
+the initramfs as its root filesystem. The initramfs is a Gzip-compressed Copy
+In, Copy Out (CPIO) archive containing only the programs and modules necessary
+for the kernel to mount the actual (encrypted) root filesystem [47]. The
+construction of this archive varies across different Linux distributions. Under
+Qubes OS, the tool dracut is employed for this purpose.
+
+Qubes-AEM leverages dracut's configuration options to incorporate specific
+scripts and programs into the initramfs, ensuring that the required
+functionality for its integrity verification processes is included [48]_.
+
+Qubes-AEM is implemented entirely through configuration files and sh or bash
+scripts. Consequently, it has numerous dependencies, including a complete TPM
+software stack, the tpm-tools, three small utilities developed specifically for
+Qubes OS, and various standard Linux utilities such as file and grep [48]_
+(module-setup.sh).
+
+These scripts operate in two distinct environments: the initramfs and the
+decrypted root filesystem. They manage interactions with the TPM and the
+Plymouth login screen, enabling users to detect potential Evil Maid Attacks
+(EMAs) effectively.
+
+This chapter has covered a wide range of topics, starting with a system
+leveraging a Dynamic Root of Trust for Measurement (DRTM), followed by the Chain
+of Trust established by Qubes OS with the AEM extension, and concluding with the
+initramfs phase of a Linux system and the technical specifics of the Qubes-AEM
+software.
 
 Complexity
 ----------
-TODO
+
+For a meaningful comparison, we begin by examining the size of the software
+components. At the start of the Chain of Trust, the SINIT ACM module is
+executed. Since its source code is not publicly available, it is not possible to
+provide an assessment of its size. Following this, tboot is executed, with its
+line count as determined by cloc shown in :numref:`tboot-scope`. This reveals
+that tboot alone comprises over 20,000 lines of C/C++ code. In contrast, the
+size of Qubes-AEM is significantly smaller, consisting of approximately 900
+lines of script code (see :numref:`qubes-aem-scope`).
+
+Dynamic Root of Trust for Measurement (DRTM) offers the advantage of a shorter
+Chain of Trust compared to a comparable system using Static Root of Trust for
+Measurement (SRTM). A shorter chain is generally easier to comprehend and less
+complex. However, this simplicity comes with the drawback that the platform must
+be trusted to a greater extent than with SRTM.
+
+For example, DRTM introduces resettable Platform Configuration Registers (PCRs).
+This operation requires a specific privilege level, referred to as Locality,
+which is controlled by the platform. If there are vulnerabilities in the
+implementation, the locality may be spoofed, potentially allowing the
+modification of PCR contents.
+
+Shell scripts are widely understood by developers and system administrators, as
+they are commonly used to automate workflows. Combined with their relatively
+small size, this makes them the component with the lowest complexity in the
+system. However, these scripts include features that increase complexity without
+necessarily enhancing security.
+
+One such example is the capability to boot multiple Qubes-OS devices from a
+single USB stick. While this functionality adds flexibility, it does not
+contribute directly to the system's security posture.
+
+DRTM reduces the Chain of Trust at the cost of increasing the overall system
+complexity. The CPU must meet specific requirements, making the solution
+ultimately tied to a particular platform. While both AMD and Intel offer these
+extensions, tboot currently supports only Intel. The numerous features and the
+DRTM approach contribute to a relatively high level of complexity.
 
 Functionality
 -------------
-TODO
+To leverage the full functionality of Qubes-AEM, the system must meet all
+prerequisites specified for the TrustedGRUB2 system. Additionally, the processor
+must be an Intel model equipped with the Intel Trusted Execution Technology
+(TXT) extension. Once these requirements are satisfied, the software can operate
+with its complete feature set, delivering its intended capabilities [43]_ [44]_.
+
+Qubes-AEM leverages Intel TXT to establish a Chain of Trust with a dynamic root.
+The resulting PCR values can be utilized at runtime to verify that the system
+was booted with a specific configuration. QubesOS enables this functionality by
+providing a complete TPM software stack for runtime queries, ensuring seamless
+interaction and verification.
+
+The Qubes-AEM extension utilizes PCR values to detect software manipulations.
+The fundamental mechanism was discussed in :ref:`Technical Details QubesAEM`,
+where the focus was on a configuration without an external boot medium and with
+an SRK password set. Qubes-AEM provides several configuration options, which are
+detailed in the following sections.
+
+In addition to the internal boot medium, a USB stick or an SD card can be used
+as an external medium. In this configuration, the bootloader and all unencrypted
+data reside on the external medium, which, due to its small size, can be easily
+secured. In its simplest use case, the external medium serves the same purpose
+as the SRK password in an internal installation—protecting the secret. An
+attacker would need simultaneous physical access to both the PC and the boot
+medium to access the secret [44]_.
+
+To safeguard the confidentiality of the password and secret against video
+surveillance or shoulder surfing, Qubes-AEM offers multifactor authentication.
+During the creation of the external boot medium, a shared secret is generated
+and can be imported into an app like "Authy," "Google Authenticator," or
+"FreeOTP" either via a barcode or manual input. Instead of displaying a static
+secret during login, a one-time password (OTP) is shown as a six-digit number,
+which must match the number displayed in the app.
+
+To avoid entering the FDE password, Qubes-AEM generates a keyfile that can also
+decrypt the full disk encryption (FDE). This keyfile is secured with a separate,
+unique password. After entering the required information, the system boots,
+ensuring that even if someone records the input and output during the startup
+process, they gain no knowledge of either the secret or the FDE password.
+
+The Freshness Token, briefly mentioned during the examination of the boot
+partition contents, plays a critical role in the system's security mechanism.
+Essentially, it consists of 20 bytes of random data that, like the secret, are
+sealed by the TPM. Upon successful system authentication, the hash of the
+Freshness Token is stored in the Non-Volatile Random Access Memory (NVRAM) of
+the TPM.
+
+During the next boot, the system verifies whether the token's hash matches the
+value stored in the NVRAM and displays an alert if there is a mismatch. After
+successful authentication, a new Freshness Token is generated for subsequent
+boots. This mechanism ensures that attackers with access to a copy of the
+external boot medium must start the laptop before the rightful owner has a
+chance to do so. Otherwise, the Freshness Token is regenerated, invalidating the
+old one.
+
+This feature provides protection for the shared secret used in the Time-Based
+One-Time Password (T-OTP) system. If an invalid Freshness Token is detected,
+Qubes-AEM halts the process, safeguarding the system against unauthorized
+access. In the event that a boot medium is lost, Freshness Tokens can also be
+manually invalidated [61]_.
+
+A unique ID stored in the NVRAM of the TPM enables the use of a single USB stick
+as an external boot medium for multiple QubesOS instances. However, to achieve
+the highest level of security, it is recommended to use a separate boot medium
+for each device. Furthermore, these media should be stored securely and
+separately to minimize the risk of unauthorized access or compromise.
 
 Usability
 ---------
-TODO
+As with most software aiming for the highest level of security,
+user-friendliness is not a strong point. This challenge begins with the QubesOS
+operating system itself, which is not compatible with all hardware
+configurations. During the course of this work, attempts to run QubesOS on a
+Dell XPS 15 9550 and a ThinkPad T410 were unsuccessful, despite both devices
+being listed in the Hardware Compatibility List (HCL) and having been
+successfully tested with older versions of QubesOS by other users.
+
+The AEM extension also has its weaknesses in terms of user-friendliness. While
+the installation of the required components is relatively straightforward,
+setting up a system with AEM protection is complex. It involves several
+non-sequential steps, and certain technical details, such as manually
+downloading the correct SINIT ACM, must be addressed independently. For a
+successful installation, the accompanying README file must be meticulously
+followed step by step. Even with strict adherence, there is still a risk that
+the system may not function correctly due to unforeseen issues or subtle
+configuration errors.
+
+The first error encountered during this work was that the GRUB configuration
+file did not set the SINIT ACM as a module after installation. Although this
+issue was fixed in the repository back in September 2017, a new version with the
+fix did not appear in the package repositories until February 12, 2018 [45]_.
+Without the SINIT ACM set as a module, the Chain of Trust cannot be established,
+rendering Qubes-AEM nonfunctional.
+
+Another issue with lesser impact is the invalid token in the barcode when using
+multifactor authentication. The URL embedded in the barcode contains a line
+break at the end, which is the reason why importing it into "Authy" fails.
+
+In addition to the two previously mentioned issues, the operating system with an
+AEM configuration only starts after an additional setting for the hypervisor has
+been made in the grub.cfg file. The tboot README [43]_ contains an example
+configuration where this setting is applied. Therefore, it is likely that the
+configuration created by Qubes-AEM is faulty.
+
+A positive aspect is the seamless integration into the login process. Once the
+system is correctly set up, no further intervention is required. Before the text
+box for entering the FDE password appears, Qubes-AEM displays the secret.
+
+.. code-block::
+   :caption: Source: Qubes AEM Partitions
+   :linenos:
+   :name: qubes-aem-partitions
+
+    $ fdisk -l /dev/sda
+    Disk /dev/sda: 476.96 GiB, 512110190592 bytes, 1000215216 sectors
+    Disk model: SAMSUNG MZ7TE512
+    Units: sectors of 1 * 512 = 512 bytes
+    Sector size (logical/physical): 512 bytes / 512 bytes
+    I/O size (minimum/optimal): 512 bytes / 512 bytes
+    Disklabel type: dos
+    Disk identifier: 0xa8b6ae5b
+
+    Device     Boot   Start        End   Sectors  Size Id Type
+    /dev/sda1  *       2048    2099199   2097152    1G 83 Linux
+    /dev/sda2       2099200 1000214527 998115328  476G 83 Linux
+
+    $ lsblk -f /dev/sda
+    NAME   FSTYPE      LABEL UUID
+    sda
+      sda1 ext4        aem   ccc1704b-607b-4417-b60e-c3bba2e0224d
+      sda2 crypto_LUKS       e2e988a9-c19b-4af8-b9b5-5d4efd6beef6
+
+.. code-block::
+   :caption: Source: tboot scope
+   :linenos:
+   :name: tboot-scope
+
+    $ cd /tboot-1.9.10/tboot
+    $ cloc ./**/*
+          89 text files.
+          89 unique files.
+           1 file ignored.
+
+    github.com/AlDanial/cloc v 1.84  T=0.32 s (273.3 files/s, 103615.1 lines/s)
+    --------------------------------------------------------------------------
+    Language                files          blank        comment           code
+    --------------------------------------------------------------------------
+    C                          41           3207           3882          16988
+    C/C++ Header               39            946           2185           4691
+    Bourne Shell                2             39             54            422
+    Assembly                    4            103            276            379
+    make                        2             47             39            102
+    --------------------------------------------------------------------------
+    SUM:                       88           4342           6436          22582
+    --------------------------------------------------------------------------
+    $
+
+.. code-block::
+   :caption: Source: QubesOS AEM scope
+   :linenos:
+   :name: qubes-aem-scope
+
+    $ cd /qubes-antievilmaid
+    $ cloc ./**/*
+          23 text files.
+          19 unique files.
+          14 files ignored.
+
+    github.com/AlDanial/cloc v 1.84  T=0.06 s (150.2 files/s, 30166.4 lines/s)
+    --------------------------------------------------------------------------
+    Language                files          blank        comment           code
+    --------------------------------------------------------------------------
+    Bourne Shell                3            135             48            563
+    HTML                        1             20              0            518
+    Bourne Again Shell          4            120             47            353
+    Ruby                        1              0              0              3
+    --------------------------------------------------------------------------
+    SUM:                        9            275             95           1437
+    --------------------------------------------------------------------------
+    $
+
+Conclusion
+==========
+With the completion of the analysis of QubesOS-AEM, two systems with different
+approaches now exist, which will be compared in the following.
+
+Both systems use different approaches for the Root of Trust for Measurement.
+TrustedGRUB2 utilizes SRTM, which, compared to the DRTM used in Qubes-AEM,
+performs better. The following arguments support this statement:
+
+1. The theoretical concept behind SRTM is simpler to understand compared to
+   DRTM. In the case of an immutable CRTM, the execution begins, and all
+   software components are measured by their predecessor. DRTM, on the other
+   hand, involves resettable PCRs and privilege levels (Localities) that are
+   enforced by hardware, and to verify these, knowledge of a closed-source Intel
+   CPU is required.
+
+2. Specifically for Intel's implementation, DRTM utilizes the SINIT ACM
+   (Intel-signed closed-source software). Obtaining this binary alone is
+   cumbersome. Furthermore, several security vulnerabilities have already been
+   discovered in older versions [49]_, [50]_.
+
+3. The required code for SRTM is significantly smaller than that for DRTM. This
+   makes it easier to understand and implement independently.
+
+The features offered by Qubes-AEM are significantly more comprehensive than
+those of the TrustedGRUB2 system. While TrustedGRUB2, with a set SRK and a LUKS
+keyfile sealed with the TPM, can detect a subset of EM attacks, external storage
+devices, multifactor secrets, and DRTM are exclusive to Qubes-AEM and bring the
+security up to a different level.
+
+In terms of user-friendliness, both systems perform similarly poorly. The
+biggest issue with TrustedGRUB2 is its neglected state, while for Qubes-AEM, the
+complex setup process and the errors that occur during a typical installation
+are the main challenges.
+
+Qubes-AEM is much better maintained. The pull request submitted for this work
+was merged within a day, and since the start of this research, another release
+of the extension has been published. In contrast, TrustedGRUB2 has not received
+any commits since 2017, and pending pull requests are not being integrated.
+Qubes-AEM also benefits from being designed for an operating system where this
+feature holds significant importance (with its own TPM entry in the HCL [62]_
+and documentation found under Security in the Qubes documentation [63]_), which
+ensures that it is well integrated.
+
+This paragraph concludes the state-of-the-art analysis, in which two different
+systems with countermeasures against EM attacks were presented and analyzed. The
+foundational knowledge gained so far has been supplemented with two practical
+implementations. Using this information, different solution approaches will be
+presented in the next chapter, one of which will ultimately be implemented.
 
 .. [2] Gordon Matzigkeit Yoshinori K. Okuji Colin Watson Colin D. Bennett, the
    GNU GRUB Manual, 06/2019
@@ -450,5 +788,25 @@ TODO
 .. [43] tboot Readme, Zugriff am: 12/2019
    https://github.com/tklengyel/tboot/blob/master/README
 
+.. [44] QubesAEM readme, Zugriff am: 01/2020
+   https://github.com/QubesOS/qubes-antievilmaid
+
+.. [45] QubesAEM Repository, Zugriff am: 01/2020
+   https://github.com/QubesOS/qubes-antievilmaid
+
 .. [46] IBM Personal System/2 and Personal Computer BIOS Interface Technical
    Reference, 04/1987
+
+.. [48] QubesOS - AEM Quellcode, https://github.com/QubesOS/qubes-antievilmaid
+
+.. [49] Rafal Wojtczuk, Joanna Rutkowska, Alexander Tereshkin Another Way to
+   Circumvent Intel® Trusted Execution Technology, 12/2009
+
+.. [50] Rafal Wojtczuk, Joanna Rutkowska Attacking Intel TXT®via SINIT code
+   execution hijacking, 11/2011
+
+.. [61] Email correspondence with author Patrik Hagara (usbstick)
+
+.. [62] QubesOS HCL, https://www.qubes-os.org/hcl/
+
+.. [63] QubesOS AEM Documentation, https://www.qubes-os.org/doc/anti-evil-maid/

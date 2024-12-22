@@ -1,0 +1,104 @@
+--- ./sys/arch/amd64/stand/mbr/mbr.S.orig	2020-01-11 16:20:46.000000000 +0100
++++ ./sys/arch/amd64/stand/mbr/mbr.S	2020-01-11 18:01:44.000000000 +0100
+@@ -416,12 +416,17 @@ do_lba:
+ 
+ 	popw	%si			/* (get back %si) flags unchanged */
+ 
+-	jnc	booting_os		/* If it worked, run the pbr we got */
++	jnc	tpm_measure		/* If it worked, measure and run the pbr we got */
+ 
+ 	/*
+ 	 * LBA read failed, fall through to try CHS read
+ 	 */
+ 
++#ifdef NO_CHS
++do_chs:
++	movw	$enochs, %si
++	jmp	err_stop
++#else
+ do_chs:
+ 	/*
+ 	 * BIOS call "INT 0x13 Function 0x2" to read sectors from disk into
+@@ -451,11 +456,69 @@ do_chs:
+ 	movw	$0x201, %ax		/* function and number of blocks */
+ 	xorw	%bx, %bx		/* put it at %es:0 */
+ 	int	$0x13
+-	jnc	booting_os
++	jnc	tpm_measure
+ 
+ read_error:
+ 	movw	$eread, %si
+ 	jmp	err_stop
++#endif
++
++tpm_measure:
++#ifdef TPM_MEASURE
++	/*
++	 * BIOS call "INT 0x1a TCG_StatusCheck"
++	 *	On entry 	%ah = 0xBB
++	 * 			%al = 0x00
++	 *	On return:
++	 * 			%eax = returncode, set to 0 if supported
++	 *			%ebx = 0x41504353
++	 *			%ch  = TCG BIOS Major Version
++	 *			%cl  = TCG BIOS Minor Version
++	 *			%edx = BIOS TCG Feature Flags
++	 *			%esi = absolute pointer to event log
++	 *			%edi = pointer to eventlog
++	 * From: TCG PC Client Specific Implementation Specification for
++	 *       Conventional BIOS (Version 1.20 FINAL, July 13, 2005)
++	 */
++        pushl   %edx            /* dl contains bios drive number -> preserve */
++
++	movw	$0xbb00, %ax
++	int	$0x1a
++	test	%eax, %eax
++	jnz	measure_end
++	cmpw	$0x4354, %bx
++	jnz	measure_end
++
++	/*
++	 * BIOS call "INT 0x1a TCG_CompactHashLogExtendEvent"
++	 *	On entry 	%ah  = 0xBB
++	 * 			%al  = 0x07
++	 *			%es  = Segment portion of buffer to be hashed
++	 *			%di  = Offset  portion of buffer to be hashed
++	 *			%esi = The informative value for event field
++	 *			%ebx = 0x41504354
++	 *			%ecx = Length in bytes of the buffer to be hashed
++	 *			%edx = The PCRIndex to be extended
++	 *	On return:
++	 *			%eax = Return Code as defined in section
++	 *			%edx = event number of the event that was logged
++	 *			All other registers are preserved
++	 *
++	 * From: TCG PC Client Specific Implementation Specification for
++	 *       Conventional BIOS (Version 1.20 FINAL, July 13, 2005)
++	 */
++	movw	$0xbb07, %ax
++	xorw	%di, %di
++	xorl	%esi, %esi
++	movl	$0x41504354, %ebx
++	movl    $0x200, %ecx
++        xorl    %edx, %edx      /* doing xorl + movb saves 1 byte */
++        movb    $0x08,  %dl
++	int	$0x1a
++
++measure_end:
++        popl   %edx
++#endif
+ 
+ booting_os:
+ 	puts(crlf)
+@@ -532,7 +595,11 @@ part_num:
+ 
+ /* Error messages */
+ efdmbr:	.asciz		"MBR on floppy or old BIOS\r\n"
++#if NO_CHS
++enochs:	.asciz		"\r\nCompiled w/o chs\r\n"
++#else
+ eread:	.asciz		"\r\nRead error\r\n"
++#endif
+ enoos:	.asciz		"No O/S\r\n"
+ enoboot: .ascii		"No active partition"	/* runs into crlf... */
+ crlf:	.asciz		"\r\n"

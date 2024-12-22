@@ -1,0 +1,10 @@
+--- ./sys/arch/amd64/stand/boot/Makefile.orig	2020-01-14 14:37:08.000000000 +0100
++++ ./sys/arch/amd64/stand/boot/Makefile	2020-01-14 10:52:03.000000000 +0100
+@@ -27,6 +27,7 @@ SRCS+=	boot.c bootarg.c cmd.c vars.c
+ SRCS+=	gidt.S random_i386.S
+ SRCS+=	cmd_i386.c dev_i386.c exec_i386.c gateA20.c machdep.c
+ SRCS+=	bioscons.c biosdev.c diskprobe.c memprobe.c time.c
++SRCS+=	tpm.c
+ .if ${SOFTRAID:L} == "yes"
+ SRCS+=	softraid_amd64.c
+ .endif

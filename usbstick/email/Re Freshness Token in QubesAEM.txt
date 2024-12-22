@@ -1,0 +1,47 @@
+From: Patrik Hagara patrihagar@gmail.com
+Subject: Re: Freshness Token in QubesAEM
+Date: 6. January 2020 at 16:46
+To: Julius Zint zint.julius@gmail.com
+
+On Sat, Jan 4, 2020 at 7:39 PM Julius Zint <zint.julius@gmail.com> wrote:
+> Dear Patrik Hagara,
+> you have contributed a lot to the Qubes anti-evil-maid repository and
+> I was hoping that you could answer me some questions, that came up while
+> trying to get a better understanding for my masterthesis.
+
+Hi Julius,
+
+> 1) What replay attack does the freshness token prevent?
+
+The freshness token is an attempt to avoid revealing the TOTP seed to
+an attacker, thus making it harder for them to mount a specific
+multi-stage attack -- creating a malicious AEM device (and making the
+owner use it) showing the correct TOTP code but leaking the LUKS
+password back to the attacker.
+It serves as an extra layer of protection for cases where an attacker
+manages to steal or copy (one of) the AEM boot device(s), but only
+gets to access the Qubes machine later, after it was rebooted by the
+owner using the copied AEM device at least once (at which point the
+freshness token of the copied device is invalidated, so attacker
+cannot boot the target Qubes machine using the stolen AEM device to
+learn the TOTP seed).
+Additionally, if the owner notices a missing AEM device, they can
+manually revoke its freshness token as detailed in [1].
+
+[1] https://github.com/QubesOS/qubes-antievilmaid/blob/master/README#L368
+
+> 2) For what reason is the TPM provisioned with a ID?
+
+The TPM ID is used to enable a specific use-case: having a single AEM
+boot device and multiple Qubes machines. This way, AEM can correctly
+pick the corresponding set of secrets give to the TPM to unseal.
+
+> Kind Regards
+> Julius Zint
+
+Hope my answers were clear enough. Feel free to ask more should
+you need to.
+Best of luck with your thesis! I would be interested in reading it
+once it's done.
+Cheers,
+Patrik
