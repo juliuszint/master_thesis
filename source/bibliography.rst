@@ -158,3 +158,5 @@ Bibliography
 .. [62] QubesOS HCL, https://www.qubes-os.org/hcl/
 
 .. [63] QubesOS AEM Documentation, https://www.qubes-os.org/doc/anti-evil-maid/
+
+.. [64] https://marc.info/?t=156851721400002&r=1&w=4
