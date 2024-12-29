@@ -133,11 +133,243 @@ function, it is crucial to understand the exact memory location where the PBR
 
 OpenBSD MBR
 -----------
+The MBR startup program scans the partition table for a partition marked as
+active, loads the PBR (i.e., the first sector of the partition), and transfers
+control to it. Figure 5.3 illustrates the OpenBSD MBR startup program divided
+into several sections, with their functions described individually below.
+
+All address and size information is derived from the disassembly of the MBR. An
+annotated version of this disassembly (``mbr/mbr.orig.disass``) is included with
+this work on the USB stick. The disassembly was generated using the command:
+
+.. code-block:: bash
+   :caption: MBR object dump command [65]_
+   :linenos:
+   :name: mbr-object-dump-cmd
+
+    ./objdump -D -b binary -mi386 -Maddr16,data16
+
+.. figure:: ./_static/mbr_memory.svg
+   :name: mbr-layout
+   :alt: MBR layout
+   :align: center
+
+   MBR layout
+
+``0x000 - 0x022``:
+  The code in this section begins by setting various segment registers, which
+  prepares the stack for use. Following this, a complete copy of the MBR is made
+  from memory address ``0000:7C00`` to ``0000:7A00``, and execution continues
+  from this copied location. The reason for this is historical: partition tables
+  were added to the MBR at a later stage. If the PBR contains an older MBR, it
+  is expected that the firmware will place it at the address ``0000:7C00``.
+
+``0x022 - 0x048``:
+  This section contains the logic for enforcing CHS (Cylinder-Head-Sector)
+  addressing. CHS is one of two methods for addressing a block on the hard disk,
+  the other being LBA (Logical Block Addressing). Without any keyboard input, the
+  bootloader checks later whether LBA is supported and, if so, uses it for disk
+  access. However, by holding down the Shift key during the boot process, CHS
+  addressing can be enforced.
+
+``0x048 - 0x063``:
+  This section is further divided into two areas, highlighted in different colors.
+  The white section contains instructions that search the partition table in the
+  MBR for a partition marked as active. The red section is only reached if no
+  active partition is found; otherwise, it is skipped. The red section contains an
+  infinite loop and serves as a termination state for the program. In the event of
+  an error, this part is also jumped to by later blocks in the program.
+
+``0x063 - 0x0B2``:
+  Using the console output function of the BIOS API, the MBR communicates which
+  active partition it is attempting to start. Subsequently, it evaluates whether
+  the BIOS supports LBA addressing. If LBA is supported, no jump occurs, and the
+  light gray block is executed.
+
+``0x0B2 - 0x0E8``:
+  In this section, the Partition Boot Record (PBR) is loaded to the address
+  ``0000:7C00`` using one of two possible methods. The light gray portion
+  contains the code for LBA (Logical Block Addressing), while the dark gray
+  portion is responsible for CHS (Cylinder-Head-Sector) addressing.
+
+``0x0E8 - 0x105``:
+  In the source code file, this block is labeled as booting_os. Initially, a
+  line break is output to the console. Following this, the signature of the
+  loaded PBR is verified. If the signature is valid, control is transferred to
+  the PBR.
+
+``0x105 - 0x11D``:
+  This section contains the ``Lmessage`` and ``Lchr`` functions, responsible for
+  outputting text to the BIOS console. ``Lmessage`` expects a pointer to a
+  C-style string and passes each character, one at a time, via the ``al``
+  register to the ``Lchr`` function for display.
+
+``0x11D - 0x193``:
+ This relatively large section contains a placeholder for an LBA command packet
+ and the C-style strings for all messages output by the bootloader.
+
+``0x193 - 0x1B8``:
+  This 37-byte section is unused and is filled with ``0x00`` by the assembler.
+
+To incorporate the measurement functionality into the MBR start program, we have
+precisely 37 bytes of unused space available without removing existing code.
+However, a minimal program invoking ``TCG_StatusCheck`` and
+``TCG_CompactHashLogExtendEvent`` requires at least 63 bytes under optimal
+conditions. This number is based on a small test program that calls both
+functions with an arbitrary memory address. Consequently, it is not feasible to
+extend the MBR start program with measurement functionality without removing
+existing code.
+
+Changes
+-------
+The developers of TrustedGRUB2 encountered a similar space constraint and
+resolved it by removing the code responsible for loading via CHS
+(Cylinder-Head-Sector addressing). However, this solution has the drawback of
+rendering the system unbootable on platforms that lack LBA (Logical Block
+Addressing) support. Given that parts of the code need to be removed regardless,
+it is reasonable to consider removing either the CHS or LBA code. This approach
+ensures that the system can still boot, provided the platform supports the
+retained addressing method.
+
+By removing the CHS code, an additional 25 bytes of space is freed. Combined
+with the existing 37 bytes, this results in a total of 62 bytes of available
+memory, which is still insufficient. However, further optimizations can be
+applied to the measurement code, such as simplifying the comparison of the full
+content of the ebx register. These adjustments can reduce the code size
+sufficiently to fit within the 62 bytes of available space.
+
+.. code-block:: asm
+   :caption: Optional CHS for MBR
+   :linenos:
+   :name: mbr-optional-chs
+
+    do_chs:
+    #ifdef NO_CHS
+        movw $enochs, %si
+        jmp err_stop
+    #else
+        movb $CHAR_CHS_READ, %al
+        call Lchr
+        # ...
+        int $0x13
+        jnc booting_os
+
+    read_error:
+        movw $eread, %si
+        jmp err_stop
+    #endif
+
+    booting_os:
+        # ...
+
+In this context, "removal" refers to optionally excluding the CHS code through a
+preprocessor directive. :numref:`mbr-optional-chs` highlights the newly added
+source code lines in green. Instead of outright eliminating the CHS code path,
+it is replaced with a smaller segment of code. This replacement displays the
+error message *Compiled w/o CHS* and subsequently halts the system. This
+approach at least lets users on CHS only system know what the problem is.
+
+The space allocated for the string in ``enochs`` is only slightly larger than
+that in ``eread``. Since it is used exclusively for CHS read errors, it can also
+be removed when the CHS code path is excluded during compilation. As a result,
+the total memory required for the strings remains almost unchanged.
+
+With the newly available memory, the code for measuring the PBR can be added.
+Figure :numref:`mbr-measure-code` illustrates the complete assembly instructions
+required for this functionality.
+
+.. code-block:: asm
+   :caption: MBR measure code
+   :linenos:
+   :name: mbr-measure-code
+
+    do_lba:
+        # ...
+        jnc tpm_measure
+    tpm_measure:
+    #ifdef TPM_MEASURE
+        pushl %edx
+
+        movw $0xbb00, %ax
+        int $0x1a
+        test %eax, %eax
+        jnz measure_end
+        cmpw $0x4354, %bx
+        jnz measure_end
+
+        movw $0xbb07, %ax
+        xorw %di, %di
+        xorl %esi, %esi
+        movl $0x41504354, %ebx
+        movl $0x200, %ecx
+        xorl %edx, %edx
+        movb $0x08, %dl
+        int $0x1a
+
+    measure_end:
+        popl %edx
+    # endif
+
+    booting_os:
+        puts(crlf)
+        # ...
 
 
+For orientation, both the code above and below the newly inserted section are
+shown. Referring again to Figure :numref:`mbr-layout`, the insertion is located
+precisely at address ``0x0e8``, directly after loading the PBR and before
+handing control over to it.
+
+Line 6:
+  The pushl instruction is the first newly added command. It saves the content
+  of the ``edx`` register onto the stack. This register contains the disk number
+  passed by the BIOS, indicating the disk from which the BIOS loaded the MBR.
+  Since the ``TCG_StatusCheck`` call overwrites the contents of this register
+  with the TPM feature flags, the disk number is restored after the measurement
+  code is completed using the ``pop`` instruction in line 25.
+
+
+Lines 8-13:
+  These lines show the code for invoking the ``TCG_StatusCheck`` function. After
+  the interrupt in line 9, the return values are evaluated. First, it ensures
+  that the ``eax`` register contains the value 0. Then, ``bx`` is compared to
+  ``TC``. To save space, only the first two bytes of the ebx register (which
+  would otherwise contain the full ``TCPA`` value) are checked. If both
+  registers contain the correct values, the measurement process continues.
+
+Lines 15-22:
+  These instructions execute the ``TCG_CompactHashLogExtendEvent`` function.
+  Initially, all required parameters are loaded into CPU registers. The
+  segment-offset is stored in the ``di`` register, which is reset to 0 using an ``xor``
+  instruction. The extra-segment register es is already correctly set and points
+  to the segment of the PBR. Its fixed size of 512 bytes (``0x200``) is written into
+  the ``ecx`` register in line 20. To save a byte, the PCR index is not directly
+  written into ``edx`` with a ``movl`` instruction; instead, the register is first reset
+  to 0 using ``xor``, and then the least significant byte (LSB) is set with a movb
+  instruction (lines 21-22). The TCPA protection value is stored in ebx, and the
+  event log entry is set to 0 in esi. This prepares the interrupt in line 23 to
+  be triggered.
+
+If the modified MBR is compiled with the command:
+
+.. code-block:: bash
+
+    make CPPFLAGS+=-DNO_CHS CPPFLAGS+=-DTPM_MEASURE
+
+and the resulting binary is written over the existing bootloader using ``dd``,
+the PBR will be measured into ``PCR-08``. The patch file
+``mbr/measure_biosboot.patch``, which includes all changes made to ``mbr.S``, is
+provided on the USB stick accompanying this work.
+
+The MBR now extends the Chain of Trust up to the PBR, which, in the case of
+OpenBSD, contains the biosboot(8) binary. This binary shares several
+similarities with the MBR in its functionality. The next chapter outlines the
+necessary modifications required to further extend the Chain of Trust from
+``biosboot(8)`` to ``boot(8)``.
 
 
 
 .. [34] TCG PC Client Specific Implementation Specification for Conventional
    BIOS, 02/2012 Specification Version 1.21 Errata
 
+.. [65] https://prefetch.net/blog/index.php/2006/09/09/digging-through-the-mbr/

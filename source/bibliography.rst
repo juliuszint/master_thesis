@@ -160,3 +160,5 @@ Bibliography
 .. [63] QubesOS AEM Documentation, https://www.qubes-os.org/doc/anti-evil-maid/
 
 .. [64] https://marc.info/?t=156851721400002&r=1&w=4
+
+.. [65] https://prefetch.net/blog/index.php/2006/09/09/digging-through-the-mbr/

@@ -30,4 +30,5 @@ exclude_patterns = []
 html_favicon = './_static/favicon.png'
 html_title = "Master Thesis"
 html_theme = 'furo'
+html_logo = "./_static/openbsd_logo.png"
 html_static_path = ['_static']
