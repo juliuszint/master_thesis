@@ -220,8 +220,8 @@ functions with an arbitrary memory address. Consequently, it is not feasible to
 extend the MBR start program with measurement functionality without removing
 existing code.
 
-Changes
--------
+MBR Changes
+-----------
 The developers of TrustedGRUB2 encountered a similar space constraint and
 resolved it by removing the code responsible for loading via CHS
 (Cylinder-Head-Sector addressing). However, this solution has the drawback of
@@ -367,6 +367,154 @@ similarities with the MBR in its functionality. The next chapter outlines the
 necessary modifications required to further extend the Chain of Trust from
 ``biosboot(8)`` to ``boot(8)``.
 
+PBR enhancements
+================
+The PBR contains the ``biosboot(8)`` binary, whose source code resides in the
+directory ``sys/arch/amd64/stand/biosboot``. This includes the assembler file
+``biosboot.S``, the Makefile, the linker script ``ld.script``, and the manual
+page ``biosboot.8``. Similar to the MBR, the biosboot program can be compiled by
+simply running the ``make`` command in the same directory.
+
+The process produces the Executable and Linkable Format (ELF) file ``biosboot``,
+which, in addition to the actual machine code, also contains metadata about the
+program. This metadata is used to directly set variables within the machine code
+during installation. This procedure was described in the foundational concepts
+in :ref:`biosboot(8)`.
+
+With the included metadata, the file is significantly larger than the available
+512 bytes. Therefore, during installation, the installboot(8) utility extracts
+the text segment and writes it to the first block of the partition. Since the
+PBR does not require a partition table, the full 512 bytes—minus the 2 signature
+bytes at the end—are available for the machine code. The distribution of these
+510 bytes is detailed in this following chapter.
+
+OpenBSD biosboot
+----------------
+As with the modifications to the MBR boot program, we will analyze the structure
+of ``biosboot(8)``, assess the remaining available memory for extensions, and
+identify code that could be removed without affecting the loading of the
+second-stage bootloader, ``boot(8)``.
+
+The text segment of the ELF file can be extracted using the command:
+
+.. code-block:: bash
+   :caption: PBR objcopy command
+   :linenos:
+   :name: pbr-object-copy-cmd
+
+    ./objcopy -O binary --only-section=.text biosboot biosboot.text
+
+Subsequently, the disassembly can be generated with the same method as used for
+the MBR in :numref:`mbr-object-dump-cmd`. The disassembled code is included on
+the accompanying USB stick in the file ``pbr/biosboot.bin.disass``.
+
+
+.. figure:: ./_static/pbr_memory.svg
+   :name: pbr-layout
+   :alt: PBR layout
+   :align: center
+
+   PBR layout
+
+
+``0x000 - 0x03E``
+  The PBR starts with the BIOS Parameter Block (BPB) and the extended BPB, which
+  contain information about the filesystem of the partition. It begins with the
+  ASCII string ``OpenBSD`` at offset 0x03 and ends with the string ``UFS 4.4``,
+  making it easily identifiable in a hex dump.
+
+``0x03E - 0x063``
+  At the start, the processor is initialized, preparing the stack and data
+  segment. If CHS is enforced via a set flag or by holding the Shift key, the
+  message !Loading is displayed on the console. If LBA is available, the leading
+  exclamation mark is omitted from the output.
+
+``0x063 - 0x0C6``
+  In the first part of this section, the program checks whether the firmware
+  supports LBA. If it does not, the program requires more detailed information
+  about the disk geometry, which it obtains via a BIOS call in the second part
+  of this section. Once all the necessary information is available, the block
+  containing the inode data structure of ``boot(8)`` is loaded into memory.
+
+``0x0C6 - 0x103``
+  In this section, a loop is used to load all the blocks that ``boot(8)`` spans
+  into memory. Whether CHS or LBA is used no longer matters, as a function
+  pointer variable has already been set to either do_lba or do_chs. This
+  function pointer is invoked repeatedly until ``boot(8)`` is completely loaded
+  into the system memory.
+
+``0x103 - 0x135``
+  In the white section, the signature of the loaded program is verified. For
+  ``boot(8)``, because it is an ELF file, the signature contains the characters
+  ``ELF`` at the beginning. If the signature is invalid, execution continues in
+  the red section, which outputs an error message and then halts the system. If
+  the signature is valid, the green section is executed, where control is handed
+  over to ``boot(8)``.
+
+``0x135 - 0x1d1``
+  This section contains a total of five functions. The light gray block at the
+  beginning is the ``do_chs`` function, which can load a block from the disk
+  using CHS. The small dark gray block is the ``do_lba`` function, which also
+  loads a block from the disk but uses LBA instead. The following dark blue area
+  represents the ``fsbtosector`` function, which converts a filesystem block
+  address into a sector address. The subsequent light blue section contains the
+  ``Lmessage`` and ``Lchr`` functions, which are already known from the MBR.
+
+``0x1d1 - 0x200``
+  The section concludes with variables and strings (in the brown area), similar
+  to the MBR, followed by 8 bytes of unused space in black.
+
+PBR Changes
+-----------
+The necessary adjustments are very similar to those made in the MBR. We use the
+exact same TCG-BIOS API shown in subsection :ref:`TCG BIOS API` to verify
+whether the interface is offered by the firmware, and if so, employ the same
+function to extend the Chain of Trust.
+
+In the PBR, we have the full 512 bytes available for the program, but as shown
+in :numref:`pbr-layout`, only 8 bytes are unused. This means that, as before, we
+will make the CHS code path optional using a preprocessor directive, thereby
+freeing up sufficient space for the extension.
+
+The invocation of the ``TCG_StatusCheck`` function is identical to that in the
+MBR. The only difference is that here, we have enough space to compare the full
+contents of the ebx register with TCPA. The call is located directly at address
+0x126, in the green block in :numref:`pbr-layout`, immediately before control is
+handed over to ``boot(8)``.
+
+.. code-block:: nasm
+   :caption: Size and Address of Boot
+   :linenos:
+   :name: size-and-addr-of-boot
+
+    movl inodedbl, %esi
+    movl -32(%esi), %ecx
+
+    movw $(LOADADDR >> 4), %bx 5
+    movw %bx, %es
+
+In the MBR, the size of the PBR, with its 512 bytes, was already known in
+advance. For ``boot(8)``, however, this is not the case, and its size must be
+determined at runtime. This is achieved through lines 1 and 2 of
+:numref:`size-and-addr-of-boot`. According to the source code comments, the
+memory at the inodedbl address contains a pointer to the Direct Block List of
+the inode data structure for ``boot(8)``. Its format is described in the file
+``sys/ufs/ufs/dinode.h``, and we see that the 64-bit byte size information is
+located exactly 32 bytes before the Direct Block List (``di_db``).
+
+Since we have sufficient memory available, we explicitly set the ``es``
+register, even though it has already been set to the correct value by previous
+code. The es register can only be set to the value of another register.
+Therefore, an intermediate step with the ``bx`` register is necessary, into
+which we write the segment address of ``boot(8)``.
+
+If we now compile ``biosboot(8)`` with the changes, which are also included as a
+patch file on the USB stick under ``pbr/measure_boot.patch``, and install the
+result using the installboot tool, ``boot(8)`` will be measured in ``PCR-09``.
+The Chain of Trust is now extended all the way to the software component that
+asks users for the Full Disk Encryption (FDE) password. This fulfills
+requirement 1, which is to maintain the Chain of Trust across all software
+components involved in the boot process.
 
 
 .. [34] TCG PC Client Specific Implementation Specification for Conventional
