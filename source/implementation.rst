@@ -516,8 +516,645 @@ asks users for the Full Disk Encryption (FDE) password. This fulfills
 requirement 1, which is to maintain the Chain of Trust across all software
 components involved in the boot process.
 
+boot(8) Enhancements
+====================
+This chapter explains the changes made to ``boot(8)`` to enable the detection of
+manipulations to the MBR, PBR, or ``boot(8)`` itself.
+
+The source code for ``boot(8)`` is not located in a single directory like the
+MBR or ``biosboot(8)``, but is spread across several directories. The Makefile
+for building boot(8) can be found in the folder ``sys/arch/amd64/stand/boot/``.
+It lists all the source files involved. The reason for this distribution is
+that, for the first time, platform-independent C code is included.
+
+``sys/arch/amd64/stand/boot (2)``
+  Contains the amd64 platform-specific code for boot(8). This includes the
+  Makefile and the srt0.S assembly file.
+
+``sys/stand/boot (4)``
+  This directory contains the platform-independent code of the bootloader, such
+  as the boot shell.
+
+``sys/arch/amd64/stand/libsa (13)``
+  Contains amd64-specific code, such as bootloader commands that are only
+  available on a specific platform or the Global Interrupt Descriptor Table
+  (GIDT).
+
+``sys/stand/libsa (44)``
+  This directory contains source code for fundamental and platform-independent
+  functions such as ``alloc``, ``memcpy, or ``strtol``.
+
+``sys/lib/libkern (4)``
+  Contains mathematical functions for data types that are larger than the
+  natively supported types of the platform, such as 128-bit types on 64-bit
+  platforms.
+
+``sys/lib/libz (4)``
+  Contains code for decompressing files and checksum algorithms like CRC and
+  Adler.
+
+Since this work only considers the ``amd64`` platform, only the third directory,
+``sys/arch/amd64/stand/libsa``, is relevant. It contains the platform-specific
+commands for the bootloader. Here, we can add a TPM command that provides all
+the desired functionalities. To keep the source code file with the
+machine-specific commands organized, we will offload the TPM code into its own
+file.
+
+We have already successfully used the TCG-BIOS-API when extending the Chain of
+Trust. Since there is also no driver infrastructure in place for ``boot(8)``, it
+would be sensible to use the API here as well. In the following sections, we
+will clarify whether the API provides all the functions we need and whether
+these can be called from ``boot(8)``.
+
+PasstroughToTPM
+---------------
+The ``TCG_PassthroughToTPM`` function allows any command to be sent to the TPM.
+It offers great flexibility at the cost of abstraction. This function takes two
+memory areas as arguments: one containing the serialized TPM command and another
+where the TPM's response will be written. Callers receive no assistance in
+creating the TPM command, but any command can be sent to the TPM. The memory
+areas are passed to the function through the registers shown in
+:numref:`tcg-passthroughtotpm-machine-state`.
+
+.. code-block:: none
+   :caption: TCG_PassthroughToTPM Machine State [34]_
+   :linenos:
+   :name: tcg-passthroughtotpm-machine-state
+
+    On entry:
+        %ah = 0xbb
+        %al = 0x02
+        %es = Segment portion of the pointer to the TPM input parameter block
+        %di = Offset portion of the pointer to the TPM input parameter block
+        %ds = Segment portion of the pointer to the TPM output parameter block
+        %si = Offset portion of the pointer to the TPM output parameter block
+        %ebx = 0x41504354
+        %ecx = 0
+        %edx = 0
+
+    On return:
+        %eax = Return Code as defined in Section 13.3 (Return Codes)
+        %ds:%si = Referenced buffer updated to provide return results.
+
+The segment-offset pair ``es``, ``di`` does not point directly to a TPM command
+but rather to an Input Parameter Block. At the end of this block follows the
+actual TPM command data. Before these, there is a small header containing
+information for the BIOS, as illustrated in :numref:`input-parameter-block`.
+
+.. figure:: ./_static/input_parameter_block.svg
+   :name: input-parameter-block
+   :alt: Input Parameter Block
+   :align: center
+
+   Input Parameter Block
+
+``IPBLength``
+  is the length of the Input Parameter Block. This includes the 8 bytes of the
+  header as well as the number of bytes of the TPM command, i.e.,
+  ``TPMOperandIn``.
+
+``OPBLength``
+  contains the length of the Output Parameter Block and must be greater than 4
+  bytes, as the header alone requires this amount.
+
+``TPMOperandIn``
+  contains the data of the serialized TPM command.
+
+The byte order of the header fields, both in the Output Parameter Block and the
+Input Parameter Block, matches the system's endianness and therefore does not
+require further consideration.
+
+Using the ``TCG_PassThroughToTPM`` function, we can utilize all TPM
+functionalities. The only remaining requirement is the code necessary to make a
+BIOS call from ``boot(8)``.
+
+BIOS calls from boot(8)
+-----------------------
+In contrast to the MBR and PBR, both of which largely left the CPU unchanged,
+``boot(8)`` introduces its own Global Interrupt Descriptor Table (GIDT). This
+extends the one set by the BIOS and transitions the CPU from Real Mode to
+Protected Mode. As described in the fundamentals in :ref:`Basic Input Output
+System`, the BIOS service routines stored in the GIDT assume that the processor
+is operating in Real Mode.
+
+To call BIOS services from ``boot(8)``, special logic is required to transition
+the processor into Real Mode before invoking the BIOS function and then back
+into Protected Mode afterward. To automate this process for the programmer, a
+new interrupt vector is initialized for all BIOS-defined interrupt vectors,
+offset by 32 (``0x20``).
+
+This can be explained with an example: for the interrupt vector ``0x1a``, which
+we use, ``boot(8)`` initializes the interrupt vector ``0x3a`` with a handler.
+This handler reverts the CPU to the state expected by the BIOS. Then, the actual
+interrupt is called using vector 0x1a (calculated as 0x3a - Offset), and upon
+return, the CPU is restored to its previous state.
+
+The return values from BIOS calls can be handled in two different ways:
+
+1. Leaving the content unchanged in the CPU registers: This approach has the
+   drawback that since ``boot(8)`` is primarily written in C, the compiler must
+   be informed which registers are modified by a BIOS call. Without this, there
+   is a risk that the compiler may store a variable in a register, which could
+   then be inadvertently altered during the BIOS call.
+
+2. Providing the return values in memory while leaving the CPU registers
+   unchanged: This method avoids the risk of unintended register modification
+   and is generally safer for integration with C code.
+
+.. code-block:: none
+   :caption: BIOS API bug
+   :linenos:
+   :name: bios-api-bug
+
+    /* clear NT flag in eflags */
+    /* Martin Fredriksson <martin@gbg.netman.se> */
+    pushf
+    pop %eax
+    and $0xffffbfff, %eax
+    push %eax
+    popf
+
+    /* save registers into save area */
+    movl %eax, _C_LABEL(BIOS_regs)+BIOSR_AX
+    movl %ecx, _C_LABEL(BIOS_regs)+BIOSR_CX
+    /* ... */
+
+
+Technically, OpenBSD supports both approaches. The return values are available
+both in the CPU registers and in memory within the ``BIOS_regs`` structure. In
+OpenBSD 6.5, however, there is a bug in transferring the return values, as shown
+in :numref:`bios-api-bug`. These assembly instructions execute after the BIOS
+interrupt. At the bottom, you can see how the register contents are saved into
+the ``BIOS_regs`` structure.
+
+In the upper part, the content of ``eax`` is overwritten with the CPU flags, and
+this value ends up in ``BIOS_regs.biosr_ax``. This issue was reported and has
+been fixed in newer versions of OpenBSD. For the remainder of this work, the
+patch ``boot/gidt.patch`` (found on the USB stick) was used, ensuring that all
+return values in BIOS_regs are correct.
+
+At this point, it should also be noted that both the es and ds registers are set
+to the values in ``BIOS_regs`` before switching to Real Mode. If you want to
+pass these values, it must be done by assigning them to the
+``BIOS_regs.biosr_es`` or ``BIOS_regs.biosr_ds`` fields.
+
+After resolving the error, we can now perform a BIOS call and read the return
+values. So far, this has only been done directly from assembly code. However,
+``boot(8)`` is mostly written in C, and our TPM code will also be written in C.
+The GNU Compiler Collection (GCC) compiler allows for incorporating assembly
+instructions into C code using the ``__asm`` statement. [51]_ (chap. 6.47)
+
+.. code-block:: none
+   :caption: Inline Assembler Syntax
+   :linenos:
+   :name: inline-assembler-syntax
+
+     asm asm-qualifiers ( AssemblerTemplate
+           : OutputOperands
+         [ : InputOperands
+         [ : Clobbers ] ])
+
+``asm asm-qualifiers``
+  :numref:`inline-assembler-syntax` illustrates the general syntax for inline
+  assembly. It begins with the keyword ``asm``, which can vary between
+  compilers, followed by asm-qualifiers such as ``volatile``, ``inline``, or
+  ``goto``. For example, goto specifies that a jump to a label may occur within
+  the assembly code. [51]_ (chap. 6.47).
+
+``AssemblerTemplate``
+  is a standard C-string containing assembly instructions. Multiple individual
+  instructions are separated by a newline and a tab character. However,
+  differences may occur depending on the assembler being used. [51]_ (chap.
+  6.47)
+
+``OutputOperands``, ``InputOperands``
+  inform the compiler which C variables are required as input for the assembly
+  code and into which variables the output should be written. This work makes
+  limited use of this feature, so the explanation is kept brief. For more
+  detailed information, the book "Using the GNU Compiler Collection" [51]_
+  (chap. 6.47) can be consulted.
+
+``Clobbers``
+  is a list of registers that are not listed in OutputOperands or InputOperands
+  but whose contents might still be altered during the execution of the machine
+  code. The compiler requires this information to avoid storing function
+  variables in such registers, where they might unintentionally be modified.
+
+.. code-block:: C
+   :caption: Inline Assembly Example
+   :linenos:
+   :name: inline-assembly-example
+
+    __asm volatile("movl $0xBB00, %%eax\n\t"
+                   "int $0x20 + (0x1A)\n\t"
+        :
+        :
+        : "%eax", "%ecx", "%edx", "%ebx", "cc");
+    if(BIOS_regs.biosr_ax == 0x00 &&
+        BIOS_regs.biosr_bx == 0x41504354) {
+        /* API is supported */
+
+
+
+
+:numref:`inline-assembly-example` illustrates the invocation of the
+``TCG_StatusCheck`` function using inline assembly. The assembly instructions are
+straightforward and require no additional explanation. This example is for
+demonstration purposes only, for the final result of this work the ``DOINT``
+macro provided by OpenBSD was used.
+
+This macro automatically adds the offset of 32 (``0x20``), eliminating the need
+to specify it directly. As shown in :numref:`tcg-status-check-api`, many
+register contents are overwritten during the function call. This is specified to
+the C compiler through the ``Clobbers`` parameter, while the ``InputOperands``
+and ``OutputOperands`` are left empty. This is because the ``BIOS_regs``
+structure is used to retrieve the return values.
+
+The if statement leverages the ``BIOS_regs`` structure to determine whether the
+TCG BIOS API is available.
+
+With the inline assembly feature, we can now invoke the TCG_PassThroughToTPM
+function from C code and send arbitrary commands to the TPM. Next, we will
+explore how these commands and their corresponding responses are structured.
+
+TPM Commands
+------------
+For all TPM commands, the bit order of all multi-byte data types follows Big
+Endian format, meaning the Most Significant Byte (MSB) is placed first. This
+aligns with the Internet standard. Since the Intel CPU in the test system uses
+Little Endian format, the bytes must be swapped during serialization. [31]_
+(chap. 2.1.1)
+
+Based on the so-called ``TPM_TAG``, all commands can be categorized into three
+classes [31]_ (chap. 6). There are commands that do not require authorization,
+such as the ``TPM_PCRRead`` command, which allows reading the content of a PCR.
+Then, there are commands that require a single authorization, like ``TPM_Seal``,
+and commands like ``TPM_Unseal``, which require two authorizations.
+
+All the example commands are called from the final prototype. The structure for
+both authorized and unauthorized commands will be explained below. More commands
+were needed for the implementation, but since they follow the same pattern,
+further explanation is unnecessary. For additional details on other commands,
+refer to the specification [32]_.
+
+PCR Read Command
+~~~~~~~~~~~~~~~~
+The ``TPM_PCRRead`` command allows reading the contents of a PCR. The serialized
+data for the request is shown in :numref:`tpm-pcr-read-rq`, which is from the third part of
+the TPM specification [32]_. It includes the definition of the request, the
+response, and possibly general notes about the command.
+
+.. figure:: ./_static/tpm_pcr_read.svg
+   :name: tpm-pcr-read-rq
+   :alt: TPM PCR Read Request
+   :align: center
+
+   TPM PCR Read Request [32]_ (chap. 16.2)
+
+
+The figure shows the parameter number in the first column. If the field is
+empty, it means the parameter is only used for the authorization calculation and
+is not part of the message. The second column, labeled **SZ**,indicates the size
+of the parameter in bytes. The information under **HMAC** is required for the
+authorization calculation. Since ``TPM_PCRRead`` does not require this, it will
+be discussed in the next section.
+
+The fields **Type**, **Name**, and **Description** are self-explanatory.
+However, it is important to note that if the type is not a basic one like
+``UINT32``, its structure is described in detail in the second part of the
+specification [31]_.
+
+
+``tag``
+  The value specified for the tag parameter, ``TPM_TAG_RQU_COMMAND``, indicates
+  two things: first, the exact value to be assigned, which is ``0xc1``, and
+  second, that this is a request without authorization.
+
+``paramSize``
+  The ``tag`` parameter is followed by the ``paramSize`` parameter, whose value
+  for this request is ``14``, representing the sum of all entries in the SZ
+  column.
+
+``ordinal``
+  The ordinal serves as the identifier for the command to be executed. For the
+  ``TPM_PCRRead`` request, this is the constant ``TPM_ORD_PCRRead``, which has
+  the value ``0x15``.
+
+``pcrIndex``
+  Finally, the ``pcrIndex`` parameter specifies the desired index as a
+  ``UINT32``.
+
+When these values are sent in the correct order and with the appropriate
+byte-endianness, the TPM responds in the format shown in
+:numref:`tpm-pcr-read-rsp`.
+
+.. figure:: ./_static/tpm_pcr_read_rsp.svg
+   :name: tpm-pcr-read-rsp
+   :alt: TPM PCR Read Response
+   :align: center
+
+   TPM PCR Read Response [32]_ (chap. 16.2)
+
+The first three parameters in the response are similar to those in the request,
+with the difference that instead of an ``ordinal``, there is a ``returnCode``.
+This parameter contains the value 0 if the request was successful. Otherwise, it
+includes an error code, whose meaning can be found in the specification [31]_
+(chap. 16).
+
+``outDigest``
+  The value of the requested PCR is located in the outDigest field at the end.
+
+These 20 bytes can now be displayed. This completes the explanation of the basic
+structure of commands without authorization.
+
+Seal Command
+~~~~~~~~~~~~
+Reading a PCR requires no authorization, making the command relatively
+straightforward. In contrast, ``TPM_Seal`` requires a key, for which
+authorization is necessary.
+
+Before delving into the two different protocols for authorization sessions, it
+is essential to understand the term "entity" in the TPM context. An entity is
+anything referenced by a handle in relation to the TPM [29]_ (chap. 8). Examples
+include a key, such as the SRK (referenced by the handle ``TPM_KH_SRK``), as
+well as an NVRAM index or PCRs. For this work, an entity refers either to the
+SRK or a sealed blob, although the latter is not referenced by a handle in our
+case.
+
+To interact with an entity, the first step is to initiate an authorization
+session. This can be done using either the **Object Independent Authorization
+Protocol (OIAP)** or the **Object Specific Authorization Protocol (OSAP)**. The
+key difference between the two is that an OSAP session is valid for a single
+entity, whereas an OIAP session can be used for multiple entities. Due to its
+lower overhead, an OIAP session is generally preferred. However, commands that
+involve transmitting authorization data specifically require an OSAP session
+[30]_ (chap. 13.1).
+
+Both protocols initiate a session through a single TPM command, involving an
+initial exchange of nonces. Both the client and the TPM must retain the nonce
+sent by the other party. The specification refers to a nonce generated by the
+client as a "**Nonce-Odd**" and one generated by the TPM as a "**Nonce-Even**".
+These nonces are always used for the next request or response, integrated into
+the authorization process via a hash function. To maintain this chain, a new
+nonce is transmitted with every subsequent request or response. These rolling
+nonces help protect against replay attacks [30]_ (chap. 13.1).
+
+:numref:`tpm-seal-rq` illustrates the structure of a ``TPM_Seal`` request. The
+authorization-specific data is located below the double line. With the
+Nonce-Even and the Auth-Handle—obtained from the response to an OSAP request —
+we have all the necessary information to construct the request.
+
+
+.. figure:: ./_static/tpm_seal.svg
+   :name: tpm-seal-rq
+   :alt: TPM Seal Request
+   :align: center
+
+   TPM Seal Request [32]_ (chap. 10.1)
+
+Except for the ``encAuth`` parameter, all fields above the double line—which
+separates the authorization data from other parameters—are straightforward to
+populate. In this work, the ``keyHandle`` is always set to the SRK. The
+``pcrInfo`` is a simple structure that allows multiple PCRs to be selected using
+bitfields, and the ``data`` parameter is entirely flexible, provided it does not
+exceed the maximum size of 255 bytes.
+
+The ``encAuth`` parameter contains the 20-byte authorization data in encrypted
+form. Demonstrating knowledge of this data is required during the unsealing
+process. Since this feature is not needed for this work, the Well-Known-Secret
+(20 bytes zeroed out) was used. Consequently, the somewhat complex process of
+determining the encrypted version is not further explained here.
+
+``authHandle``
+  Below the double line, the authorization data begins with the ``authHandle``.
+  For this request, it must be the handle of an OSAP session, as specified in
+  the description. The value for this handle is provided by the TPM in the
+  response to the OSAP request.
+
+``authLastNonceEven``
+  In this request, we encounter for the first time a parameter not transmitted
+  but derived from a previous TPM response. This is evident from the empty
+  parameter field number of the ``authLastNonceEven`` parameter in Figure 5.16.
+  Thus, we proceed with the serialization of the command starting from the
+  ``nonceOdd`` parameter while incorporating the previously received
+  ``nonceEven`` into a hash value, the calculation of which will be explained
+  later.
+
+``nonceOdd``
+  The ``nonceOdd`` is a randomly generated number by us, which we retain until
+  receiving the response to verify the authorization data.
+
+``continueAuth``
+  The ``continueAuth`` parameter controls whether the authorization session
+  remains valid after this command or is no longer needed. However, since the
+  ``TPM_Seal`` command transfers a new authorization secret via ``encAuth``,
+  this value is ignored, and the session is terminated [30]_ (chap. 13.1).
+
+``pubAuth``
+  As the description indicates, the value in the pubAuth field is an HMAC, where
+  the UsageAuth of the specified key is used as the secret for its calculation.
+  Since only the SRK (Storage Root Key) is used in the prototype, and we
+  specified the ``--srk-well-known`` option when initializing the TPM with the
+  ``tpm_takeownership`` command, the UsageAuth of the SRK is 20 null bytes.
+
+To calculate the HMAC, we first need the parameter digest intermediate value,
+which will be referred to as **P**. This value is the result of a SHA1 hash
+calculation applied to the concatenation of all the parameters listed in the
+HMAC column. For ``TPM_Seal``, this would include the following parameters:
+
+.. math::
+
+   P = SHA1(S1 | S2 | S3 | S4 | S5 | S6)
+
+This intermediate value then becomes part of the HMAC calculation, with the
+result being assigned to the pubAuth field. The HMAC algorithm combines the
+parameter digest P with the UsageAuth of the key
+
+.. math::
+
+   pubAuth = HMAC_{usageAuth}(P | 2H1 | 3H1 | 4H1)
+
+This concludes the overview of the structure of TPM commands, giving us a basic
+understanding of their composition. All other commands follow the same schema
+and thus only need to be implemented accordingly. As more commands are
+integrated into OpenBSD, a suitable architecture becomes increasingly important
+to ensure that the software is easily extendable and programming errors are
+avoided. This is discussed in the next section.
+
+Software Architecture
+=====================
+We begin this section with the cross-cutting concern of memory management. The
+aim is to implement it in a way that minimizes memory leaks and reduces the
+number of necessary data copies wherever possible.
+
+These requirements shaped the ``tpm_buffer`` structure and its associated
+functions, which are designed to return a specific memory segment from the
+buffer.
+
+.. code-block:: C
+   :caption: Memory Management API
+   :linenos:
+   :name: memory-management-api
+
+    enum TPM_BUFTYPE {
+        TPM_BUFTYPE_REQUEST,
+        TPM_BUFTYPE_RESPONSE
+    };
+
+    struct tpm_buffer
+    {
+        enum TPM_BUFTYPE type;
+        unsigned char* data;
+    };
+
+    struct tpm_header*
+    get_tpm_header(struct tpm_buffer* buf);
+
+    void*
+    get_tpm_payload(struct tpm_buffer* buf);
+
+    struct tpm_request_authorization*
+    get_tpm_request_auth1(struct tpm_buffer* buf);
+
+
+Request and response are each stored in their own ``tpm_buffer``, as
+authorization calculations require data from the request, and the
+``TCG_PassThroughToTPM`` function returns an error if the same memory region is
+used for both the request and the response.
+
+The pointer ``tpm_buffer.data`` points to a memory region large enough to
+accommodate any TPM command. This is ensured by the constant ``TPM_MAX``, which
+is set to a value of ``4096``.
+
+The top layer of the architecture allocates two tpm_buffer structures once and
+releases them before returning. All underlying layers operate within these two
+memory regions, avoiding the need for additional memory allocation. This design
+satisfies both requirements: only the top layer manages memory allocation and
+deallocation, and all data—from the Input/Output Parameter Block to the TPM
+command—is sequentially stored in memory.
+
+:numref:`mm-buffer-layout` illustrates all memory regions with dedicated
+functions for access, ensuring structured and efficient handling of memory
+operations.
+
+.. figure:: ./_static/tpm_buffer_layout.svg
+   :name: mm-buffer-layout
+   :alt: Memory Management Buffer Layout
+   :align: center
+
+   Memory Management Buffer Layout
+
+Layers
+------
+As illustrated in :numref:`sw-arch-layers`, the source code can be divided into
+three layers from a software architecture perspective:
+
+.. figure:: ./_static/openbsdaem_arch.svg
+   :name: sw-arch-layers
+   :alt: OpenBSD AEM Layers
+   :align: center
+
+   OpenBSD AEM Layers
+
+**driver layer**
+  At the lowest level lies the **driver layer**, which contains two functions
+  implemented using inline assembly. These functions serve as the C interface to
+  the TPM, acting as the bridge between the software and the hardware. They are
+  dedicated solely to this purpose and have no additional responsibilities.
+
+**command layer**
+  Directly above the driver layer is the command layer, comprising seven
+  functions, each dedicated to handling **exactly one specific TPM command**.
+  For example, the ``tpm_seal`` function does not initiate an authorization
+  session itself. Instead, it takes the authorization handle as a parameter and
+  focuses solely on constructing and sending the ``TPM_Seal`` command.
+
+**application layer**
+  At the highest level is the application layer, where multiple commands are
+  executed sequentially to implement a function, such as sealing. This layer is
+  responsible for the allocation and deallocation of memory, which is then
+  utilized across all underlying layers.
+
+The error-handling principle is straightforward: If an error occurs, regardless
+of the layer, an error message describing the issue is immediately output, and
+the function returns a universal error constant. Consequently, all functions
+have an ``int`` return type, while other results are passed back via pointer
+parameters.
+
+This concludes the explanation of the TPM-specific part of the OpenBSD AEM
+software architecture. The remaining source code, which primarily handles the
+persistent storage of the sealed secret on a storage medium, is so minimal that
+it resides directly within the command functions and therefore does not require
+a separate software architecture.
+
+boot(8) ``tpm`` Command
+=======================
+The previously shown functions from the application layer now need to be made
+accessible to users. This is accomplished through the newly added,
+machine-specific command ``machine tpm``, whose inputs, in case of an valid
+number of parameters, look as follows:
+
+
+.. code-block:: none
+   :caption: boot(8) machine tpm command
+   :linenos:
+   :name: boot-machine-tpm-command
+
+   boot> machine tpm
+   machine tpm r[andom]|p[cr]|u[nseal] [DiskNumber]|s[eal] secret [DiskNumber]
+   boot>
+
+The four possible operations are separated by the logical OR operator ``|``. All
+optional inputs are indicated by square brackets. Only one operation can be
+executed per call.
+
+**random**
+  It outputs a random number generated by the TPM to the terminal
+
+**pcr**
+  It outputs the contents of the first 15 PCRs to the terminal
+
+**unseal**
+  It loads exactly one block starting from offset 1 (just after the MBR) from
+  the disk with number ``0x80`` (can be overridden by the DiskNumber parameter)
+  and checks if it starts with the ``AEMS`` signature. If so, the 4-byte length
+  of the subsequent sealed secret follows immediately after the signature. The
+  command passes these two values to the TPM API and, upon success, displays the
+  **decrypted** secret in text form on the terminal.
+
+**seal**
+  Takes the secret as a parameter and optionally the disk number. The secret is
+  sealed using the TPM with PCRs 04, 08, and 09. ``PCR-04`` measures the MBR,
+  ``PCR-08`` measures the PBR, and ``PCR-09`` contains the measurement of
+  ``boot(8)``.
+
+  If the sealing is successful, the block for persistent storage is prepared. It
+  begins with the ``AEMS`` signature, followed by the 4-byte length information
+  and the encrypted data. This block is then written to the disk at offset 1,
+  directly after the MBR.
+
+The storage in the disk block directly after the MBR is only performed because
+it is easy to implement. In a dual-boot system with Grub, a part of the Grub
+kernel resides in this block. This will be overwritten by OpenBSD-AEM without
+any prompt. Therefore, it should be emphasized again that the result of this
+work is a prototype and by no means a finished software product. In OpenBSD 6.5
+with a standard installation using Full Disk Encryption (FDE), this block is
+empty, so the prototype can be used without any issues.
+
+
+.. [29] Will Arthur, David Challener, Kenneth Goldman A Practical Guide to TPM
+   2.0, 01/2015
+
+.. [30] TPM Main Part 1 Design Principles, 03/2011 Version 1.2
+
+.. [31] TPM Main Part 2 TPM Structures, 03/2011 Version 1.2
+
+.. [32] TPM Main Part 3 Commands, 03/2011 Version 1.2
 
 .. [34] TCG PC Client Specific Implementation Specification for Conventional
    BIOS, 02/2012 Specification Version 1.21 Errata
+
+.. [51] Richard M. Stallman and the GCC Developer Community Using the GNU
+   Compiler Collection, 10/2003
 
 .. [65] https://prefetch.net/blog/index.php/2006/09/09/digging-through-the-mbr/
