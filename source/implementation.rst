@@ -1141,6 +1141,117 @@ work is a prototype and by no means a finished software product. In OpenBSD 6.5
 with a standard installation using Full Disk Encryption (FDE), this block is
 empty, so the prototype can be used without any issues.
 
+OpenBSD with AEM
+================
+This chapter demonstrates how the prototype presented in this work can be used
+to protect against EMA (Evil Maid Attacks) targeting the boot components to
+retrieve the password for Full Disk Encryption (FDE) on OpenBSD 6.5.
+
+Installation
+------------
+Currently, OpenBSD does not provide tools to set up the TPM. If the TPM is in
+its factory state, a live operating system, such as Fedora, must first be
+booted. After installing tpm-tools, the command ``tpm_takeownership -z -y``
+needs to be executed. This completes the initialization, setting both the Owner
+and SRK shared secrets to 20 null bytes.
+
+The USB stick contains a tar archive named openbsdAEM.tgz. This archive includes
+all the necessary files for an installation on OpenBSD 6.5, which can be
+initiated using the command shown in :numref:`openbsd-aem-installation`
+
+.. code-block:: bash
+   :caption: OpenBSD AEM installation
+   :linenos:
+   :name: openbsd-aem-installation
+
+    tar xzf openbsdAEM.tgz
+    cd openbsdAEM
+    ./ install.sh sd0 sd1
+    cd ../
+    rm -rf ./openbsdAEM
+
+Upon successful completion of the command without errors, the chain of trust
+during startup is extended up to boot(8). Additionally, the machine-specific
+command machine tpm becomes available in the command line interface of the
+bootloader.
+
+Creating a secret
+-----------------
+After the installation, we insert a USB stick and reboot the system. The boot(8)
+command line appears, prompting us to enter the password for Full Disk
+Encryption (FDE). By pressing Enter twice, the password entry is canceled,
+allowing us to enter any desired commands.
+
+We proceed by using the command machine diskinfo to list all disks detected and
+supported by the BIOS. This allows us to identify the BIOS disk number of the
+connected USB stick, which can be found in the ``BIOS#`` column, as shown in the
+example provided in :numref:`openbsd-aem-seal-secret`
+
+The identified BIOS disk number, such as ``0x81`` in the example, is then
+specified as the target during the sealing process. This is achieved using the
+command ``machine tpm seal``, which expects the secret as its first parameter
+and the disk number as its second.
+
+.. code-block:: none
+   :caption: OpenBSD AEM seal secret
+   :linenos:
+   :name: openbsd-aem-seal-secret
+
+    Using drive 0, partition 3.
+    Loading.......
+    probing: pc0 mem [628K 3293M 4582M a20=on]
+    disk: hd0+ sr0*
+    >> OpenBSD / amd64 BOOT 3.43
+    Passphrase:
+    aborting...
+    Passphrase:
+    aborting...
+    open(sr0a :/ etc/boot.conf): Operation not permitted
+    boot> machine diskinfo
+    Disk      BIOS#      Type       Cyls      Heads      Secs      Flags      Checksum
+    hd0       0x80       label      1023      255        63        0x2        0x499daaaa
+    hd1       0x81       label      1023      255        63        0x0        0xad4a0910
+    boot> machine tpm s SECRET 0x81
+
+After completing this final step, the USB stick can be removed from the system.
+From this point onward, it should always be stored separately from the laptop.
+
+Verification
+------------
+If, at a later time, you want to ensure that the MBR, PBR, and boot(8) remain
+unchanged—especially after the laptop might have been left unattended, such as
+in a hotel room—you can connect the USB stick to the system before starting it.
+Then, determine its disk number and use this number to execute the machine ``tpm
+unseal`` command.
+
+If the command correctly displays the secret, it can be concluded with high
+confidence that no tampering has occurred. However, if error messages appear
+instead of the secret, it is highly likely that modifications have been made.
+:numref:`openbsd-aem-unseal-secret` illustrates an example of the command input
+and its output.
+
+.. code-block:: none
+   :caption: OpenBSD AEM unseal secret
+   :linenos:
+   :name: openbsd-aem-unseal-secret
+
+    Using drive 0, partition 3.
+    Loading.......
+    probing: pc0 mem [628K 3293M 4582M a20=on]
+    disk: hd0+ sr0*
+    >> OpenBSD / amd64 BOOT 3.43
+    Passphrase:
+    aborting...
+    Passphrase:
+    aborting...
+    open(sr0a :/ etc/boot.conf): Operation not permitted
+    boot> machine diskinfo
+    Disk      BIOS#      Type       Cyls      Heads      Secs      Flags      Checksum
+    hd0       0x80       label      1023      255        63        0x2        0x499daaaa
+    hd1       0x81       label      1023      255        63        0x0        0xad4a0910
+    boot> machine tpm u 0x81
+    Secret: SECRET
+
 
 .. [29] Will Arthur, David Challener, Kenneth Goldman A Practical Guide to TPM
    2.0, 01/2015
