@@ -576,7 +576,7 @@ creating the TPM command, but any command can be sent to the TPM. The memory
 areas are passed to the function through the registers shown in
 :numref:`tcg-passthroughtotpm-machine-state`.
 
-.. code-block:: none
+.. code-block::
    :caption: TCG_PassthroughToTPM Machine State [34]_
    :linenos:
    :name: tcg-passthroughtotpm-machine-state
@@ -661,7 +661,7 @@ The return values from BIOS calls can be handled in two different ways:
    unchanged: This method avoids the risk of unintended register modification
    and is generally safer for integration with C code.
 
-.. code-block:: none
+.. code-block::
    :caption: BIOS API bug
    :linenos:
    :name: bios-api-bug
@@ -704,7 +704,7 @@ values. So far, this has only been done directly from assembly code. However,
 The GNU Compiler Collection (GCC) compiler allows for incorporating assembly
 instructions into C code using the ``__asm`` statement. [51]_ (chap. 6.47)
 
-.. code-block:: none
+.. code-block::
    :caption: Inline Assembler Syntax
    :linenos:
    :name: inline-assembler-syntax
@@ -1095,7 +1095,7 @@ machine-specific command ``machine tpm``, whose inputs, in case of an valid
 number of parameters, look as follows:
 
 
-.. code-block:: none
+.. code-block::
    :caption: boot(8) machine tpm command
    :linenos:
    :name: boot-machine-tpm-command
@@ -1192,7 +1192,7 @@ specified as the target during the sealing process. This is achieved using the
 command ``machine tpm seal``, which expects the secret as its first parameter
 and the disk number as its second.
 
-.. code-block:: none
+.. code-block::
    :caption: OpenBSD AEM seal secret
    :linenos:
    :name: openbsd-aem-seal-secret
@@ -1230,7 +1230,7 @@ instead of the secret, it is highly likely that modifications have been made.
 :numref:`openbsd-aem-unseal-secret` illustrates an example of the command input
 and its output.
 
-.. code-block:: none
+.. code-block::
    :caption: OpenBSD AEM unseal secret
    :linenos:
    :name: openbsd-aem-unseal-secret

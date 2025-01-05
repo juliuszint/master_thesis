@@ -162,3 +162,11 @@ Bibliography
 .. [64] https://marc.info/?t=156851721400002&r=1&w=4
 
 .. [65] https://prefetch.net/blog/index.php/2006/09/09/digging-through-the-mbr/
+
+.. [66] https://www.intel.com/content/www/us/en/products/sku/76616/intel-core-i74600u-processor-4m-cache-up-to-3-30-ghz/specifications.html
+
+.. [67] QubesOS homepage: https://www.qubes-os.org/downloads/
+
+.. [68] Intel SINIT https://software.intel.com/protected-download/267276/183305
+
+.. [69] TBoot Readme: https://sourceforge.net/projects/tboot/

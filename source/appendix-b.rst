@@ -1,2 +1,2 @@
-Appendix B
-++++++++++
+Linux with TrustedGRUB2
++++++++++++++++++++++++
