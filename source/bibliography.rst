@@ -170,3 +170,9 @@ Bibliography
 .. [68] Intel SINIT https://software.intel.com/protected-download/267276/183305
 
 .. [69] TBoot Readme: https://sourceforge.net/projects/tboot/
+
+.. [70] Arch Installation Guide: https://wiki.archlinux.org/index.php/Installation_guide
+
+.. [71] TrustedGRUB2: https://github.com/Rohde-Schwarz/TrustedGRUB2
+
+.. [72] GRUB2 Github: https://github.com/rhboot/grub2
